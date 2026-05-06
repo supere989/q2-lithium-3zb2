@@ -133,7 +133,7 @@ void Pack_Touch(edict_t *self, edict_t *other, cplane_t *plane, csurface_t *surf
 		if(client->pers.max_slugs < pack_slugs->value)
 			client->pers.max_slugs = pack_slugs->value;
 
-		client->has_pack = true;
+		client->has_pack = qtrue;
 	}
 
 	Pickup_Pack(self, other);

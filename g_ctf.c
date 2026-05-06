@@ -9,7 +9,7 @@ typedef struct ctfgame_s
 } ctfgame_t;
 
 ctfgame_t ctfgame;
-qboolean techspawn = false;
+qboolean techspawn = qfalse;
 
 cvar_t *ctf;
 cvar_t *ctf_forcejoin;
@@ -135,7 +135,7 @@ static qboolean loc_CanSee (edict_t *targ, edict_t *inflictor)
 
 // bmodels need special checking because their origin is 0,0,0
 	if (targ->movetype == MOVETYPE_PUSH)
-		return false; // bmodels not supported
+		return qfalse; // bmodels not supported
 
 	loc_buildboxpoints(targpoints, targ->s.origin, targ->mins, targ->maxs);
 	
@@ -145,10 +145,10 @@ static qboolean loc_CanSee (edict_t *targ, edict_t *inflictor)
 	for (i = 0; i < 8; i++) {
 		trace = gi.trace (viewpoint, vec3_origin, vec3_origin, targpoints[i], inflictor, MASK_SOLID);
 		if (trace.fraction == 1.0)
-			return true;
+			return qtrue;
 	}
 
-	return false;
+	return qfalse;
 }
 
 /*--------------------------------------------------------------------------*/
@@ -201,7 +201,7 @@ void CTFInit(void)
 	if (!flag2_item)
 		flag2_item = FindItemByClassname("item_flag_team2");
 	memset(&ctfgame, 0, sizeof(ctfgame));
-	techspawn = false;
+	techspawn = qfalse;
 }
 
 /*--------------------------------------------------------------------------*/
@@ -616,7 +616,7 @@ qboolean CTFPickup_Flag(edict_t *ent, edict_t *other)
 		ctf_team = CTF_TEAM2;
 	else {
 		gi.cprintf(ent, PRINT_HIGH, "Don't know what team the flag is on.\n");
-		return false;
+		return qfalse;
 	}
 
 	// same team, if the flag at base, check to he has the enemy flag
@@ -694,9 +694,9 @@ qboolean CTFPickup_Flag(edict_t *ent, edict_t *other)
 				}
 
 				CTFResetFlags();
-				return false;
+				return qfalse;
 			}
-			return false; // its at home base already
+			return qfalse; // its at home base already
 		}	
 		// hey, its not home.  return it by teleporting it back
 		gi.bprintf(PRINT_HIGH, "%s returned the %s flag!\n", 
@@ -709,9 +709,9 @@ qboolean CTFPickup_Flag(edict_t *ent, edict_t *other)
 
 		other->client->resp.ctf_lastreturnedflag = level.time;
 		gi.sound (ent, CHAN_RELIABLE+CHAN_NO_PHS_ADD+CHAN_VOICE, gi.soundindex("ctf/flagret.wav"), 1, ATTN_NONE, 0);
-		//CTFResetFlag will remove this entity!  We must return false
+		//CTFResetFlag will remove this entity!  We must return qfalse
 		CTFResetFlag(ctf_team);
-		return false;
+		return qfalse;
 	}
 
 	// hey, its not our flag, pick it up
@@ -734,7 +734,7 @@ qboolean CTFPickup_Flag(edict_t *ent, edict_t *other)
 		ent->svflags |= SVF_NOCLIENT;
 		ent->solid = SOLID_NOT;
 	}
-	return true;
+	return qtrue;
 }
 
 static void CTFDropFlagTouch(edict_t *ent, edict_t *other, cplane_t *plane, csurface_t *surf)
@@ -757,12 +757,12 @@ static void CTFDropFlagThink(edict_t *ent)
 		CTFResetFlag(CTF_TEAM1);
 		gi.bprintf(PRINT_HIGH, "The %s flag has returned!\n",
 			CTFTeamName(CTF_TEAM1));
-		returned = true;
+		returned = qtrue;
 	} else if (strcmp(ent->classname, "item_flag_team2") == 0) {
 		CTFResetFlag(CTF_TEAM2);
 		gi.bprintf(PRINT_HIGH, "The %s flag has returned!\n",
 			CTFTeamName(CTF_TEAM2));
-		returned = true;
+		returned = qtrue;
 	}
 
 	if (returned) {
@@ -891,10 +891,10 @@ void CTFID_f (edict_t *ent)
 {
 	if (ent->client->resp.id_state) {
 		gi.cprintf(ent, PRINT_HIGH, "Disabling player identication display.\n");
-		ent->client->resp.id_state = false;
+		ent->client->resp.id_state = qfalse;
 	} else {
 		gi.cprintf(ent, PRINT_HIGH, "Activating player identication display.\n");
-		ent->client->resp.id_state = true;
+		ent->client->resp.id_state = qtrue;
 	}
 }
 
@@ -1773,7 +1773,7 @@ qboolean CTFPickup_Tech (edict_t *ent, edict_t *other)
 		if ((tech = FindItemByClassname(tnames[i])) != NULL &&
 			other->client->pers.inventory[ITEM_INDEX(tech)]) {
 			CTFHasTech(other);
-			return false; // has this one
+			return qfalse; // has this one
 		}
 		i++;
 	}
@@ -1781,7 +1781,7 @@ qboolean CTFPickup_Tech (edict_t *ent, edict_t *other)
 	// client only gets one tech
 	other->client->pers.inventory[ITEM_INDEX(ent->item)]++;
 	other->client->ctf_regentime = level.time;
-	return true;
+	return qtrue;
 }
 
 static void SpawnTech(gitem_t *item, edict_t *spot);
@@ -1921,7 +1921,7 @@ void CTFSetupTechSpawn(void)
 	ent = G_Spawn();
 	ent->nextthink = level.time + 2;
 	ent->think = SpawnTechs;
-//	techspawn = true;
+//	techspawn = qtrue;
 }
 
 int CTFApplyResistance(edict_t *ent, int dmg)
@@ -1973,9 +1973,9 @@ qboolean CTFApplyStrengthSound(edict_t *ent)
 			else
 				gi.sound(ent, CHAN_VOICE, gi.soundindex("ctf/tech2.wav"), volume, ATTN_NORM, 0);
 		}
-		return true;
+		return qtrue;
 	}
-	return false;
+	return qfalse;
 }
 
 
@@ -1987,8 +1987,8 @@ qboolean CTFApplyHaste(edict_t *ent)
 		tech = FindItemByClassname("item_tech3");
 	if (tech && ent->client &&
 		ent->client->pers.inventory[ITEM_INDEX(tech)])
-		return true;
-	return false;
+		return qtrue;
+	return qfalse;
 }
 
 void CTFApplyHasteSound(edict_t *ent)
@@ -2012,7 +2012,7 @@ void CTFApplyHasteSound(edict_t *ent)
 void CTFApplyRegeneration(edict_t *ent)
 {
 	static gitem_t *tech = NULL;
-	qboolean noise = false;
+	qboolean noise = qfalse;
 	gclient_t *client;
 	int index;
 	float volume = 1.0;
@@ -2034,7 +2034,7 @@ void CTFApplyRegeneration(edict_t *ent)
 				if (ent->health > 150)
 					ent->health = 150;
 				client->ctf_regentime += 0.5;
-				noise = true;
+				noise = qtrue;
 			}
 			index = ArmorIndex (ent);
 			if (index && client->pers.inventory[index] < 150) {
@@ -2042,7 +2042,7 @@ void CTFApplyRegeneration(edict_t *ent)
 				if (client->pers.inventory[index] > 150)
 					client->pers.inventory[index] = 150;
 				client->ctf_regentime += 0.5;
-				noise = true;
+				noise = qtrue;
 			}
 		}
 		if (noise && ent->client->ctf_techsndtime < level.time) {
@@ -2060,8 +2060,8 @@ qboolean CTFHasRegeneration(edict_t *ent)
 		tech = FindItemByClassname("item_tech4");
 	if (tech && ent->client &&
 		ent->client->pers.inventory[ITEM_INDEX(tech)])
-		return true;
-	return false;
+		return qtrue;
+	return qfalse;
 }
 
 /*
@@ -2118,7 +2118,7 @@ static void CTFSay_Team_Location(edict_t *who, char *buf, unsigned int buflen)
 	gitem_t *item;
 	int nearteam = -1;
 	edict_t *flag1, *flag2;
-	qboolean hotsee = false;
+	qboolean hotsee = qfalse;
 	qboolean cansee;
 
 	while ((what = loc_findradius(what, who->s.origin, 1024)) != NULL) {
@@ -2131,7 +2131,7 @@ static void CTFSay_Team_Location(edict_t *who, char *buf, unsigned int buflen)
 		// something we can see get priority over something we can't
 		cansee = loc_CanSee(what, who);
 		if (cansee && !hotsee) {
-			hotsee = true;
+			hotsee = qtrue;
 			hotindex = loc_names[i].priority;
 			hot = what;
 			VectorSubtract(what->s.origin, who->s.origin, v);
@@ -2502,7 +2502,7 @@ void CTFChaseCam(edict_t *ent, pmenu_t *p)
 		if (e->inuse && e->solid != SOLID_NOT) {
 			ent->client->chase_target = e;
 			PMenu_Close(ent);
-			ent->client->update_chase = true;
+			ent->client->update_chase = qtrue;
 			break;
 		}
 	}
@@ -2522,8 +2522,8 @@ void CTFShowScores(edict_t *ent, pmenu_t *p)
 {
 	PMenu_Close(ent);
 
-	ent->client->showscores = true;
-	ent->client->showinventory = false;
+	ent->client->showscores = qtrue;
+	ent->client->showinventory = qfalse;
 	DeathmatchScoreboard (ent);
 }
 
@@ -2657,13 +2657,13 @@ void Lithium_CTFMenu(edict_t *ent);
 void CTFOpenJoinMenu(edict_t *ent) {
 	Lithium_CTFMenu(ent);
 }
-lvar_t *use_startchasecam;
+extern lvar_t *use_startchasecam;
 //WF
 
 qboolean CTFStartClient(edict_t *ent)
 {
 	if (ent->client->resp.ctf_team != CTF_NOTEAM)
-		return false;
+		return qfalse;
 
 	if (!((int)dmflags->value & DF_CTF_FORCEJOIN)) {
 		// start as 'observer'
@@ -2676,13 +2676,13 @@ qboolean CTFStartClient(edict_t *ent)
 
 		//WF
 		if(use_startchasecam->value)
-			ent->client->showscores = true;
+			ent->client->showscores = qtrue;
 		else
 		//WF
 		CTFOpenJoinMenu(ent);
-		return true;
+		return qtrue;
 	}
-	return false;
+	return qfalse;
 }
 
 qboolean CTFCheckRules(void)
@@ -2691,9 +2691,9 @@ qboolean CTFCheckRules(void)
 		(ctfgame.team1 >= capturelimit->value ||
 		ctfgame.team2 >= capturelimit->value)) {
 		gi.bprintf (PRINT_HIGH, "Capturelimit hit.\n");
-		return true;
+		return qtrue;
 	}
-	return false;
+	return qfalse;
 }
 
 /*--------------------------------------------------------------------------
@@ -2794,4 +2794,417 @@ Point trigger_teleports at these.
 void SP_info_teleport_destination (edict_t *ent)
 {
 	ent->s.origin[2] += 16;
+}
+
+// =====================================================================
+//  3ZB2 chaining/route loader (ported from 3zb2/src/g_ctf.c +
+//  3zb2/src/g_spawn.c).  Loads a per-map .chn (DM) or .chf (CTF) file
+//  containing the route node graph the bots use to navigate, then walks
+//  the entity list to bind nodes to their associated movers / items.
+// =====================================================================
+
+#include "bot.h"
+
+extern cvar_t *chedit;
+extern cvar_t *gamepath;
+extern cvar_t *botpath;
+extern edict_t *bot_team_flag1;
+extern edict_t *bot_team_flag2;
+
+static const char *Bot_AssetDir(void)
+{
+	if (botpath && botpath->string && botpath->string[0])
+		return botpath->string;
+	if (gamepath && gamepath->string && gamepath->string[0])
+		return gamepath->string;
+	return "3zb2";
+}
+
+void CTFSetupNavSpawn(void)
+{
+	FILE   *fpout;
+	char    name[256];
+	char    code[8];
+	char    SRCcode[8];
+	int     i, j;
+	int     kicked_items = 0;
+	vec3_t  v;
+	edict_t *other;
+	unsigned int size;
+	const char *dir;
+
+	spawncycle = level.time + FRAMETIME * 100;
+
+	CurrentIndex = 0;
+	memset(Route, 0, sizeof(Route));
+	memset(code, 0, 8);
+
+	dir = Bot_AssetDir();
+	if (!ctf->value)
+		snprintf(name, sizeof(name), "%s/chdtm/%s.chn", dir, level.mapname);
+	else
+		snprintf(name, sizeof(name), "%s/chctf/%s.chf", dir, level.mapname);
+
+	fpout = fopen(name, "rb");
+	if (fpout == NULL)
+	{
+		gi.dprintf("Chaining: file %s not found.\n", name);
+		return;
+	}
+
+	fread(code, sizeof(char), 8, fpout);
+	if (!ctf->value)
+		memcpy(SRCcode, "3ZBRGDTM", 8);
+	else
+		memcpy(SRCcode, "3ZBRGCTF", 8);
+
+	if (strncmp(code, SRCcode, 8))
+	{
+		CurrentIndex = 0;
+		gi.dprintf("Chaining: %s is not a chaining file.\n", name);
+		fclose(fpout);
+		return;
+	}
+
+	gi.dprintf("Chaining: %s loaded.\n", name);
+	fread(&CurrentIndex, sizeof(int), 1, fpout);
+
+	// On-disk format is the original 3ZB2 i386 layout: 32 bytes per record
+	// (12 Pt + 12 union + 4 ptr + 2 index + 2 state). On x86_64 our route_t
+	// is 40 bytes (8-byte ent pointer + alignment), so we have to decode
+	// record-by-record instead of doing one bulk fread.
+	(void)size;
+	{
+		int n;
+		for (n = 0; n < CurrentIndex && n < MAXNODES; n++)
+		{
+			unsigned char rec[32];
+			if (fread(rec, 1, 32, fpout) != 32)
+				break;
+			memcpy(&Route[n].Pt[0],   rec + 0,  12);  // vec3_t Pt
+			memcpy(&Route[n].Tcourner[0], rec + 12, 12); // union (Tcourner / linkpod[6])
+			Route[n].ent   = NULL;                    // skip 4-byte i386 pointer
+			memcpy(&Route[n].index, rec + 28, 2);
+			memcpy(&Route[n].state, rec + 30, 2);
+		}
+		if (n != CurrentIndex)
+		{
+			gi.dprintf("Chaining: short read on %s (got %d / %d records)\n",
+				name, n, CurrentIndex);
+			CurrentIndex = n;
+		}
+	}
+
+	for (i = 0; i < CurrentIndex; i++)
+	{
+		if ((Route[i].state > GRS_TELEPORT && Route[i].state <= GRS_PUSHBUTTON)
+		    || Route[i].state == GRS_REDFLAG || Route[i].state == GRS_BLUEFLAG)
+		{
+			other = &g_edicts[(int)maxclients->value + 1];
+			for (j = maxclients->value + 1; j < globals.num_edicts; j++, other++)
+			{
+				if (!other->inuse)
+					continue;
+
+				if (Route[i].state == GRS_ONPLAT
+				    || Route[i].state == GRS_ONTRAIN
+				    || Route[i].state == GRS_PUSHBUTTON
+				    || Route[i].state == GRS_ONDOOR)
+				{
+					VectorAdd(other->s.origin, other->mins, v);
+					if (VectorCompare(Route[i].Pt, v))
+					{
+						const char *want = NULL;
+						if      (Route[i].state == GRS_ONPLAT)     want = "func_plat";
+						else if (Route[i].state == GRS_ONTRAIN)    want = "func_train";
+						else if (Route[i].state == GRS_PUSHBUTTON) want = "func_button";
+						else if (Route[i].state == GRS_ONDOOR)     want = "func_door";
+						if (want && !Q_stricmp(other->classname, want))
+						{
+							Route[i].ent = other;
+							// 3ZB2 normally spawns a "Roam Navi" marker on each
+							// mover and links it via union_ent. Lithium doesn't
+							// spawn those markers, so self-link the mover so
+							// `Route[].ent->union_ent->s.origin` (used all over
+							// za.c) just gives back the mover's own origin.
+							if (other->union_ent == NULL)
+								other->union_ent = other;
+							break;
+						}
+					}
+				}
+				else if (Route[i].state == GRS_ITEMS
+				         || Route[i].state == GRS_REDFLAG || Route[i].state == GRS_BLUEFLAG)
+				{
+					if (VectorCompare(Route[i].Pt, other->monsterinfo.last_sighting))
+					{
+						Route[i].ent = other;
+						break;
+					}
+				}
+			}
+			if (j >= globals.num_edicts && (Route[i].state == GRS_ITEMS
+			                                || Route[i].state == GRS_REDFLAG
+			                                || Route[i].state == GRS_BLUEFLAG))
+				kicked_items++;
+			if (j >= globals.num_edicts)
+				Route[i].state = GRS_NORMAL;
+		}
+	}
+
+	if (kicked_items > 0)
+		gi.dprintf("Chaining: %d item nodes had no matching item (downgraded to normal nodes).\n", kicked_items);
+	gi.dprintf("Chaining: Total %i chaining pod assigned.\n", CurrentIndex);
+	fclose(fpout);
+}
+
+// Stitch path_corner-driven func_train chains together so bots can ride them.
+void G_FindTrainTeam(void)
+{
+	edict_t *teamlist[MAX_EDICTS + 1];
+	edict_t *e, *t, *p;
+	qboolean findteam;
+	char *currtarget, *currtargetname;
+	char *targethist[MAX_EDICTS];
+	int  lc, i, j, k;
+	int  loopindex;
+
+	e = &g_edicts[(int)maxclients->value + 1];
+	for (i = maxclients->value + 1; i < globals.num_edicts; i++, e++)
+	{
+		if (!(e->inuse && e->classname))
+			continue;
+		if (Q_stricmp(e->classname, "path_corner") || !e->targetname || !e->target)
+			continue;
+
+		currtarget = e->target;
+		currtargetname = e->targetname;
+		lc = 0;
+
+		memset(&teamlist, 0, sizeof(teamlist));
+		memset(&targethist, 0, sizeof(targethist));
+		findteam = qfalse;
+
+		loopindex = 0;
+		targethist[0] = e->targetname;
+
+		while (lc < MAX_EDICTS)
+		{
+			t = &g_edicts[(int)maxclients->value + 1];
+			for (j = maxclients->value + 1; j < globals.num_edicts; j++, t++)
+			{
+				if (t->inuse && t->classname
+				    && !Q_stricmp(t->classname, "func_train")
+				    && !Q_stricmp(t->target, currtargetname)
+				    && t->trainteam == NULL)
+				{
+					for (k = 0; k < lc; k++)
+						if (teamlist[k] == t) break;
+					if (k == lc)
+					{
+						teamlist[lc] = t;
+						lc++;
+					}
+				}
+			}
+			p = G_PickTarget(currtarget);
+			if (!p) break;
+			currtarget = p->target;
+			currtargetname = p->targetname;
+			if (!p->target) break;
+			for (k = 0; k < loopindex; k++)
+				if (!Q_stricmp(targethist[k], currtargetname)) break;
+			if (k < loopindex) { findteam = qtrue; break; }
+			targethist[loopindex] = currtargetname;
+			loopindex++;
+		}
+		if (findteam && lc > 0)
+		{
+			gi.dprintf("%i train chaining founded.\n", lc);
+			for (k = 0; k < lc; k++)
+			{
+				/* self-link union_ent so Get_RouteOrigin can read s.origin
+				   on any team member, not just the one that is a route node */
+				if (!teamlist[k]->union_ent)
+					teamlist[k]->union_ent = teamlist[k];
+				if (teamlist[k + 1] == NULL)
+				{
+					teamlist[k]->trainteam = teamlist[0];
+					break;
+				}
+				teamlist[k]->trainteam = teamlist[k + 1];
+			}
+		}
+	}
+}
+
+void G_FindItemLink(void)
+{
+	int i, j, k;
+	if (CurrentIndex <= 0) return;
+
+	for (i = 0; i < CurrentIndex; i++)
+	{
+		if (Route[i].state != GRS_ITEMS) continue;
+		for (j = 0; j < CurrentIndex; j++)
+		{
+			if (j != i && Route[i].ent == Route[j].ent)
+			{
+				for (k = 0; k < (MAXLINKPOD - (ctf->value != 0)); k++)
+				{
+					if (!Route[i].linkpod[k]) { Route[i].linkpod[k] = j; break; }
+				}
+			}
+		}
+	}
+}
+
+qboolean RTJump_Chk(vec3_t apos, vec3_t tpos)
+{
+	float x, l, grav, vel, ypos, yori;
+	vec3_t v, vv;
+	int    mf = qfalse;
+
+	grav = 1.0f * sv_gravity->value * FRAMETIME;
+	vel  = VEL_BOT_JUMP;
+	yori = apos[2];
+	ypos = tpos[2];
+
+	VectorSubtract(tpos, apos, v);
+
+	for (x = 1; x <= FALLCHK_LOOPMAX * 2; ++x)
+	{
+		vel  -= grav;
+		yori += vel * FRAMETIME;
+
+		if (vel > 0)
+		{
+			if (mf == qfalse && ypos < yori) mf = 2;
+		}
+		else if (x > 1)
+		{
+			if (mf == qfalse)
+			{
+				if (ypos < yori) mf = 2;
+			}
+			else if (mf == 2)
+			{
+				if (ypos >= yori)
+				{
+					mf = qtrue;
+					break;
+				}
+			}
+		}
+	}
+	VectorCopy(v, vv);
+	vv[2] = 0;
+
+	l = VectorLength(vv);
+	if (x > 1) l = l / (x - 1);
+	if (l < MOVE_SPD_RUN && mf == qtrue)
+		return qtrue;
+	return qfalse;
+}
+
+void G_FindRouteLink(edict_t *ent)
+{
+	trace_t   rs_trace;
+	qboolean  tpbool;
+	int       i, j, k, l, total = 0;
+	vec3_t    v, vv;
+	float     x;
+
+	gi.dprintf("Linking routes...\n");
+
+	if (JumpMax == 0)
+	{
+		x = VEL_BOT_JUMP - ent->gravity * sv_gravity->value * FRAMETIME;
+		JumpMax = 0;
+		while (1)
+		{
+			JumpMax += x * FRAMETIME;
+			x       -= ent->gravity * sv_gravity->value * FRAMETIME;
+			if (x < 0) break;
+		}
+	}
+
+	for (i = 0; i < CurrentIndex; i++)
+	{
+		if (Route[i].state != GRS_NORMAL) continue;
+		for (j = 0; j < CurrentIndex; j++)
+		{
+			if (abs(i - j) <= 50 || j == i || Route[j].state != GRS_NORMAL) continue;
+
+			VectorSubtract(Route[j].Pt, Route[i].Pt, v);
+			if (v[2] > JumpMax || v[2] < -500) continue;
+			v[2] = 0;
+			if (VectorLength(v) > 200) continue;
+
+			if (fabs(v[2]) > 20 || VectorLength(v) > 64)
+			{
+				if (!RTJump_Chk(Route[i].Pt, Route[j].Pt))
+					continue;
+			}
+
+			tpbool = qfalse;
+			for (l = -5; l < 6; l++)
+			{
+				if ((i + l) < 0 || (i + l) >= CurrentIndex) continue;
+				for (k = 0; k < (MAXLINKPOD - (ctf->value != 0)); k++)
+				{
+					if (!Route[i + l].linkpod[k]) break;
+					if (abs(Route[i + l].linkpod[k] - j) < 50) { tpbool = qtrue; break; }
+				}
+				if (tpbool) break;
+			}
+			if (tpbool) continue;
+
+			rs_trace = gi.trace(Route[j].Pt, NULL, NULL, Route[i].Pt, ent, MASK_SOLID);
+			if (!rs_trace.startsolid && !rs_trace.allsolid && rs_trace.fraction == 1.0)
+			{
+				for (k = 0; k < (MAXLINKPOD - (ctf->value != 0)); k++)
+				{
+					if (!Route[i].linkpod[k])
+					{
+						Route[i].linkpod[k] = j;
+						total++;
+						break;
+					}
+				}
+			}
+		}
+	}
+
+	if (ctf->value && bot_team_flag1 && bot_team_flag2)
+	{
+		j = 0;
+		k = 0;
+		for (i = (CurrentIndex - 1); i >= 0; i--)
+		{
+			if (Route[i].state >= GRS_ITEMS) continue;
+			if (Route[i].state == GRS_REDFLAG || Route[i].state == GRS_BLUEFLAG)
+			{
+				if      (Route[i].ent == bot_team_flag1) { j = FOR_FLAG1; k = i; }
+				else if (Route[i].ent == bot_team_flag2) { j = FOR_FLAG2; k = i; }
+			}
+			if      (j == FOR_FLAG1) Route[i].linkpod[MAXLINKPOD - 1] = (CTF_FLAG1_FLAG | k);
+			else if (j == FOR_FLAG2) Route[i].linkpod[MAXLINKPOD - 1] = (CTF_FLAG2_FLAG | k);
+			else                     Route[i].linkpod[MAXLINKPOD - 1] = 0;
+		}
+	}
+
+	gi.dprintf("Total %i linking done.\n", total);
+	(void)vv;
+	G_FreeEdict(ent);
+}
+
+void G_SpawnRouteLink(void)
+{
+	edict_t *e;
+	if (CurrentIndex <= 0) return;
+
+	e = G_Spawn();
+	e->nextthink = level.time + FRAMETIME * 2;
+	e->think     = G_FindRouteLink;
 }

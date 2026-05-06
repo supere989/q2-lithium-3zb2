@@ -1,5 +1,6 @@
 
 #include "g_local.h"
+#include "bot.h"
 
 #define Function(f) {#f, f}
 
@@ -134,6 +135,10 @@ void InitGame (void)
 {
 	gi.dprintf ("==== InitGame ====\n");
 
+	// initialize bots
+	SetBotFlag1(NULL);
+	SetBotFlag2(NULL);
+
 	gun_x = gi.cvar ("gun_x", "0", 0);
 	gun_y = gi.cvar ("gun_y", "0", 0);
 	gun_z = gi.cvar ("gun_z", "0", 0);
@@ -217,6 +222,16 @@ void InitGame (void)
 	// dm map list
 	sv_maplist = gi.cvar ("sv_maplist", "", 0);
 
+	// 3ZB2
+	chedit = gi.cvar ("chedit", "0", CVAR_LATCH);
+	botlist = gi.cvar ("botlist", "default", CVAR_SERVERINFO | CVAR_LATCH);
+	autospawn = gi.cvar ("autospawn", "1", CVAR_SERVERINFO);
+	gamepath = gi.cvar ("game", "0", CVAR_NOSET);
+	// where 3ZB2 assets (chdtm/, chctf/, 3ZBConfig.cfg) live, relative to the q2 root.
+	// Defaults to "3zb2" so the original asset bundle works alongside +set game lithium.
+	botpath = gi.cvar ("botpath", "3zb2", CVAR_NOSET);
+	// 3ZB2
+
 	// items
 	InitItems ();
 
@@ -238,6 +253,8 @@ void InitGame (void)
 //ZOID
 	CTFInit();
 //ZOID
+
+	Load_BotInfo();		// 3ZB2 config loading
 }
 
 //WF
@@ -503,7 +520,7 @@ void WriteGame (char *filename, qboolean autosave)
 
 	game.autosaved = autosave;
 	fwrite (&game, sizeof(game), 1, f);
-	game.autosaved = false;
+	game.autosaved = qfalse;
 
 	for (i=0 ; i<game.maxclients ; i++)
 		WriteClient (f, &game.clients[i]);
@@ -777,7 +794,7 @@ void ReadLevel (char *filename)
 	{
 		ent = &g_edicts[i+1];
 		ent->client = game.clients + i;
-		ent->client->pers.connected = false;
+		ent->client->pers.connected = qfalse;
 	}
 
 	// do any load time things at this point

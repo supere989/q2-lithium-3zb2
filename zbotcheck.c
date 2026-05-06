@@ -76,7 +76,7 @@ qboolean ZbotCheck(edict_t *ent, usercmd_t *ucmd) {
 #endif
 
 				if(resp->jitter == ZBOT_JITTERMAX)
-					return true;
+					return qtrue;
 			}
 #ifdef _DEBUG
 		else
@@ -92,5 +92,5 @@ qboolean ZbotCheck(edict_t *ent, usercmd_t *ucmd) {
 	if(level.time > resp->jitter_time + ZBOT_JITTERTIME)
 		resp->jitter = 0;
 
-	return false;
+	return qfalse;
 }

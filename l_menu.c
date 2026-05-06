@@ -38,8 +38,8 @@ void Menu_Create(edict_t *ent, int startline, int endline) {
 	ent->menu->startline = startline;
 	ent->menu->endline = endline;
 	ent->menu->page = 0;
-	ent->menu->changed = true;
-	ent->menu->editing = false;
+	ent->menu->changed = qtrue;
+	ent->menu->editing = qfalse;
 	ent->menu->cancel_func = NULL;
 	ent->menu->xoff = 15;
 	ent->menu->yoff = 16;
@@ -80,7 +80,7 @@ void Menu_AddLine(edict_t *ent, int type, int line, char *text, void *data) {
 	menuline->text = text;
 	menuline->data = data;
 	menuline->selectable = type != MENU_TEXT;
-	menuline->textp = false;
+	menuline->textp = qfalse;
 
 	if(!ent->menu->sel && menuline->selectable)
 		ent->menu->sel = menuline;
@@ -98,7 +98,7 @@ void Menu_AddText(edict_t *ent, int line, char *format, ...) {
 	text = (char *)strdup(buf);
 
 	Menu_AddLine(ent, MENU_TEXT, line, text, "l");
-	ent->menu->lastline->textp = true;
+	ent->menu->lastline->textp = qtrue;
 }
 
 void Menu_CancelFunc(edict_t *ent, void (*func)(edict_t *ent)) {
@@ -138,7 +138,7 @@ char *Menu_GetLine(edict_t *ent, menuline_t *menuline, qboolean sel) {
 	char right[20] = "";
 	char string[40];
 	char format[40];
-	qboolean colored = false;
+	qboolean colored = qfalse;
 
 	int x = 16;
 	menu_t *menu = ent->menu;
@@ -154,7 +154,7 @@ char *Menu_GetLine(edict_t *ent, menuline_t *menuline, qboolean sel) {
 
 	if(menuline->selectable) {
 		if(menuline->type == MENU_LVAR || menuline->type == MENU_PVAR) {
-			qboolean show = false;
+			qboolean show = qfalse;
 			char *edit = NULL;
 			float value = 0;
 
@@ -172,9 +172,9 @@ char *Menu_GetLine(edict_t *ent, menuline_t *menuline, qboolean sel) {
 			if(menu->editing && sel)
 				strlcpy(right, menu->edit, sizeof(right));
 			else if(!menu->editing)
-				show = true;
+				show = qtrue;
 			else if(menu->editing && !sel && menuline != menu->sel)
-				show = true;
+				show = qtrue;
 
 			if(strchr(edit, '#') && show) {
 				if(strchr(edit, '.')) {
@@ -215,7 +215,7 @@ char *Menu_GetLine(edict_t *ent, menuline_t *menuline, qboolean sel) {
 		}
 	}
 	else if(strchr(menuline->data, 'c'))
-		colored = true;
+		colored = qtrue;
 
 	if(strlen(right))
 		snprintf(string, sizeof(string), "%-*s%s", 24 - (int)strlen(right), menuline->text, right);
@@ -226,7 +226,7 @@ char *Menu_GetLine(edict_t *ent, menuline_t *menuline, qboolean sel) {
 		strlcpy(format, string, sizeof(format));
 		snprintf(string, sizeof(string), "> %-24s <", format);
 		x -= 16;
-		colored = true;
+		colored = qtrue;
 	}
 
 	snprintf(line, sizeof(line), "xv %d yv %d string%s \"%s\" ", MENU_X + ent->menu->xoff + x + 2, 
@@ -240,10 +240,10 @@ qboolean Menu_IsLineUsed(menu_t *menu, int num) {
 	menuline = menu->firstline;
 	while(menuline) {
 		if(!menuline->selectable && menuline->line == num)
-			return true;
+			return qtrue;
 		menuline = menuline->next;
 	}
-	return false;
+	return qfalse;
 }
 
 int Menu_Draw(edict_t *ent) {
@@ -251,7 +251,7 @@ int Menu_Draw(edict_t *ent) {
 	menuline_t *menuline;
 	int page = 0, num = 0;
 
-	ent->menu->changed = false;
+	ent->menu->changed = qfalse;
 
 	menuline = ent->menu->firstline;
 	while(menuline) {
@@ -344,8 +344,8 @@ void Menu_Prev(edict_t *ent) {
 
 	if(ent->menu->sel->line == 0) {
 		ent->menu->page--;
-		ent->menu->changed = true;
-		ent->layout_update = true;
+		ent->menu->changed = qtrue;
+		ent->layout_update = qtrue;
 	}
 	Menu_UpdateLine(ent);
 }
@@ -369,8 +369,8 @@ void Menu_Next(edict_t *ent) {
 
 	if(ent->menu->sel->line == 0) {
 		ent->menu->page++;
-		ent->menu->changed = true;
-		ent->layout_update = true;
+		ent->menu->changed = qtrue;
+		ent->layout_update = qtrue;
 	}
 	Menu_UpdateLine(ent);
 }
@@ -388,8 +388,8 @@ void Menu_PrevPage(edict_t *ent) {
 		if(menuline->selectable && menuline->line == 0) {
 			ent->menu->sel = menuline;
 			ent->menu->page--;
-			ent->menu->changed = true;
-			ent->layout_update = true;
+			ent->menu->changed = qtrue;
+			ent->layout_update = qtrue;
 			return;
 		}
 		menuline = menuline->prev;
@@ -408,8 +408,8 @@ void Menu_NextPage(edict_t *ent) {
 		if(menuline->selectable && menuline->line == 0) {
 			ent->menu->sel = menuline;
 			ent->menu->page++;
-			ent->menu->changed = true;
-			ent->layout_update = true;
+			ent->menu->changed = qtrue;
+			ent->layout_update = qtrue;
 			return;
 		}
 		menuline = menuline->next;
@@ -552,7 +552,7 @@ void Menu_EditBegin(edict_t *ent) {
 	else
 		return;
 
-	ent->menu->editing = true;
+	ent->menu->editing = qtrue;
 	c = strchr(ent->menu->edit, '#');
 	*c = '_';
 	c = ent->menu->edit;
@@ -561,8 +561,8 @@ void Menu_EditBegin(edict_t *ent) {
 			*c = ' ';
 		c++;
 	}
-	ent->menu->changed = true;
-	ent->layout_update = true;
+	ent->menu->changed = qtrue;
+	ent->layout_update = qtrue;
 }
 
 void Menu_EditEnd(edict_t *ent) {
@@ -570,7 +570,7 @@ void Menu_EditEnd(edict_t *ent) {
 	int val;
 	if(!ent->menu->editing)
 		return;
-	ent->menu->editing = false;
+	ent->menu->editing = qfalse;
 	if((ent->menu->edit[0] >= '0' && ent->menu->edit[0] <= '9') ||
 		(ent->menu->edit[1] >= '0' && ent->menu->edit[1] <= '9')) {
 		c = strchr(ent->menu->edit, '_');
@@ -597,8 +597,8 @@ void Menu_EditEnd(edict_t *ent) {
 			return;
 	}
 
-	ent->menu->changed = true;
-	ent->layout_update = true;
+	ent->menu->changed = qtrue;
+	ent->layout_update = qtrue;
 }
 
 void Menu_Cancel(edict_t *ent) {
@@ -608,8 +608,8 @@ void Menu_Cancel(edict_t *ent) {
 		return;
 	if(ent->menu->page) {
 		ent->menu->page--;
-		ent->menu->changed = true;
-		ent->layout_update = true;
+		ent->menu->changed = qtrue;
+		ent->layout_update = qtrue;
 	}
 	else if(ent->menu->cancel_func)
 		ent->menu->cancel_func(ent);
@@ -628,8 +628,8 @@ void Menu_LVarChanged(lvar_t *lvar) {
 		menuline = ent->menu->firstline;
 		while(menuline) {
 			if(menuline->type == MENU_LVAR && menuline->data == lvar && menuline->line) {
-				ent->menu->changed = true;
-				ent->layout_update = true;
+				ent->menu->changed = qtrue;
+				ent->layout_update = qtrue;
 				return;
 			}
 			menuline = menuline->next;
@@ -656,8 +656,8 @@ void Menu_ClientFrame(edict_t *ent) {
 			menuline = ent->menu->firstline;
 			while(menuline) {
 				if(menuline->type == MENU_PVAR && !strcmp(menuline->data, pvar->name) && menuline->line) {
-					ent->menu->changed = true;
-					ent->layout_update = true;
+					ent->menu->changed = qtrue;
+					ent->layout_update = qtrue;
 					return;
 				}
 				menuline = menuline->next;
@@ -673,7 +673,7 @@ qboolean Menu_ClientCommand(edict_t *ent) {
 	char *cmd = gi.argv(0);
 
 	if(!ent->menu)
-		return false;
+		return qfalse;
 
 	if(Q_stricmp (cmd, "invuse") == 0)
 		Menu_Use(ent);
@@ -690,8 +690,8 @@ qboolean Menu_ClientCommand(edict_t *ent) {
 	else if (Q_stricmp(cmd, "invprev") == 0)
 		Menu_Prev(ent);
 	else
-		return false;
+		return qfalse;
 
-	return true;
+	return qtrue;
 }
 

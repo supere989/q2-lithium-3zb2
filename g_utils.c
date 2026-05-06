@@ -381,7 +381,7 @@ char *G_CopyString (char *in)
 
 void G_InitEdict (edict_t *e)
 {
-	e->inuse = true;
+	e->inuse = qtrue;
 	e->classname = "noclass";
 	e->gravity = 1.0;
 	e->s.number = e - g_edicts;
@@ -443,7 +443,7 @@ void G_FreeEdict (edict_t *ed)
 	memset (ed, 0, sizeof(*ed));
 	ed->classname = "freed";
 	ed->freetime = level.time;
-	ed->inuse = false;
+	ed->inuse = qfalse;
 }
 
 
@@ -542,8 +542,8 @@ qboolean KillBox (edict_t *ent)
 
 		// if we didn't kill it, fail
 		if (tr.ent->solid)
-			return false;
+			return qfalse;
 	}
 
-	return true;		// all clear
+	return qtrue;		// all clear
 }

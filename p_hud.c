@@ -13,7 +13,7 @@ INTERMISSION
 void MoveClientToIntermission (edict_t *ent)
 {
 	if (deathmatch->value || coop->value)
-		ent->client->showscores = true;
+		ent->client->showscores = qtrue;
 	VectorCopy (level.intermission_origin, ent->s.origin);
 	ent->client->ps.pmove.origin[0] = level.intermission_origin[0]*8;
 	ent->client->ps.pmove.origin[1] = level.intermission_origin[1]*8;
@@ -29,7 +29,7 @@ void MoveClientToIntermission (edict_t *ent)
 	ent->client->invincible_framenum = 0;
 	ent->client->breather_framenum = 0;
 	ent->client->enviro_framenum = 0;
-	ent->client->grenade_blew_up = false;
+	ent->client->grenade_blew_up = qfalse;
 	ent->client->grenade_time = 0;
 
 	ent->viewheight = 0;
@@ -44,7 +44,7 @@ void MoveClientToIntermission (edict_t *ent)
 	// add the layout
 //WF
 	ent->layout = LAYOUT_SCORES;
-	ent->layout_update = true;
+	ent->layout_update = qtrue;
 /*
 	if (deathmatch->value || coop->value)
 	{
@@ -72,13 +72,15 @@ void BeginIntermission (edict_t *targ)
 	Lithium_BeginIntermission();
 	//WF
 
-	game.autosaved = false;
+	game.autosaved = qfalse;
 
-	// respawn any dead clients
+	// respawn any dead clients (skip bots — they manage their own respawn)
 	for (i=0 ; i<maxclients->value ; i++)
 	{
 		client = g_edicts + 1 + i;
 		if (!client->inuse)
+			continue;
+		if (client->svflags & SVF_MONSTER)
 			continue;
 		if (client->health <= 0)
 			respawn(client);
@@ -145,11 +147,13 @@ void BeginIntermission (edict_t *targ)
 	VectorCopy (ent->s.origin, level.intermission_origin);
 	VectorCopy (ent->s.angles, level.intermission_angle);
 
-	// move all clients to the intermission point
+	// move all clients to the intermission point (skip bots)
 	for (i=0 ; i<maxclients->value ; i++)
 	{
 		client = g_edicts + 1 + i;
 		if (!client->inuse)
+			continue;
+		if (client->svflags & SVF_MONSTER)
 			continue;
 		MoveClientToIntermission (client);
 	}
@@ -400,19 +404,19 @@ void Cmd_Score_f (edict_t *ent)
 	Lithium_LayoutTog(ent, LAYOUT_SCORES);
 
 	/*
-	ent->client->showinventory = false;
-	ent->client->showhelp = false;
+	ent->client->showinventory = qfalse;
+	ent->client->showhelp = qfalse;
 
 	if (!deathmatch->value && !coop->value)
 		return;
 
 	if (ent->client->showscores)
 	{
-		ent->client->showscores = false;
+		ent->client->showscores = qfalse;
 		return;
 	}
 
-	ent->client->showscores = true;
+	ent->client->showscores = qtrue;
 	DeathmatchScoreboard (ent);
 	*/
 	//WF
@@ -479,16 +483,16 @@ void Cmd_Help_f (edict_t *ent)
 		return;
 	}
 
-	ent->client->showinventory = false;
-	ent->client->showscores = false;
+	ent->client->showinventory = qfalse;
+	ent->client->showscores = qfalse;
 
 	if (ent->client->showhelp && (ent->client->pers.game_helpchanged == game.helpchanged))
 	{
-		ent->client->showhelp = false;
+		ent->client->showhelp = qfalse;
 		return;
 	}
 
-	ent->client->showhelp = true;
+	ent->client->showhelp = qtrue;
 	ent->client->pers.helpchanged = 0;
 	HelpComputer (ent);
 }

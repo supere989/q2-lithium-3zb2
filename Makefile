@@ -31,13 +31,13 @@
 # change it to:
 #    #define    GAME_API_VERSION        2
 
-ARCH=i386
+ARCH=x86_64
 CC=gcc
 
 #use these cflags to optimize it
-CFLAGS=-O3
-#use these when debugging 
-#CFLAGS=-g
+#CFLAGS=-O2
+#use these when debugging
+CFLAGS=-O1 -g
 
 ifeq ($(shell uname),Linux)
 CFLAGS+=-DNEED_STRLCAT -DNEED_STRLCPY
@@ -70,14 +70,16 @@ GAME_OBJS = \
 	p_client.o g_cmds.o g_combat.o g_func.o g_items.o \
 	g_main.o g_misc.o g_phys.o g_save.o g_spawn.o \
 	g_target.o g_trigger.o g_turret.o g_utils.o g_weapon.o m_move.o \
-	p_hud.o p_trail.o p_view.o p_weapon.o q_shared.o g_svcmds.o g_chase.o \
+	g_monster.o g_ai.o \
+	p_hud.o p_trail.o p_view.o p_weapon.o p_menu.o q_shared.o g_svcmds.o g_chase.o \
 	lithium.o l_display.o l_fragtrak.o l_gslog.o l_hook.o \
 	l_mapqueue.o l_nocamp.o l_obit.o l_pack.o l_rune.o \
 	l_var.o l_menu.o l_admin.o l_vote.o l_net.o net.o \
-	g_ctf.o l_hscore.o zbotcheck.o strl.o
+	g_ctf.o l_hscore.o zbotcheck.o strl.o \
+	bot.o fire.o func.o za.o
 
-lithium/game$(ARCH).$(SHLIBEXT): $(GAME_OBJS) 
-	$(CC) $(CFLAGS) $(SHLIBLDFLAGS) -o $@ $(GAME_OBJS)
+lithium/game$(ARCH).$(SHLIBEXT): $(GAME_OBJS)
+	$(CC) $(CFLAGS) $(SHLIBLDFLAGS) -o $@ $(GAME_OBJS) $(LDFLAGS)
 
 
 #############################################################################

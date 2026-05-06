@@ -1,10 +1,124 @@
 
 #include "g_local.h"
+#include "bot.h"
 
+extern void SpawnBotReserving (void);
+extern void SpawnBotReserving2 (int *red, int *blue);
+extern qboolean RemoveBot (void);
 
 void	Svcmd_Test_f (void)
 {
 	gi.cprintf (NULL, PRINT_HIGH, "Svcmd_Test_f()\n");
+}
+
+// 3ZB2: save current chaining/route file for the active map
+static void SaveChain (void)
+{
+	char name[256];
+	FILE *fpout;
+	unsigned int size;
+
+	if (!chedit->value)
+	{
+		gi.cprintf (NULL, PRINT_HIGH, "Not a chaining mode.\n");
+		return;
+	}
+
+	{
+		const char *dir = (botpath && botpath->string && botpath->string[0])
+		                ? botpath->string : gamepath->string;
+		if (ctf->value)
+			snprintf (name, sizeof(name), "./%s/chctf/%s.chf", dir, level.mapname);
+		else
+			snprintf (name, sizeof(name), "./%s/chdtm/%s.chn", dir, level.mapname);
+	}
+
+	fpout = fopen (name, "wb");
+	if (fpout == NULL)
+		gi.cprintf (NULL, PRINT_HIGH, "Can't open %s\n", name);
+	else
+	{
+		if (!ctf->value)
+			fwrite ("3ZBRGDTM", sizeof(char), 8, fpout);
+		else
+			fwrite ("3ZBRGCTF", sizeof(char), 8, fpout);
+
+		fwrite (&CurrentIndex, sizeof(int), 1, fpout);
+
+		// Write the original i386 32-byte-per-record layout so files stay
+		// interoperable with the upstream 3ZB2 chain editor on either
+		// architecture. (Our native route_t is 40 bytes on x86_64.)
+		(void)size;
+		{
+			int n;
+			for (n = 0; n < CurrentIndex; n++)
+			{
+				unsigned char rec[32];
+				memset(rec, 0, 32);
+				memcpy(rec + 0,  &Route[n].Pt[0],        12);
+				memcpy(rec + 12, &Route[n].Tcourner[0],  12);
+				/* rec + 24..27 = i386 ent pointer placeholder, leave zero */
+				memcpy(rec + 28, &Route[n].index, 2);
+				memcpy(rec + 30, &Route[n].state, 2);
+				fwrite(rec, 1, 32, fpout);
+			}
+		}
+
+		gi.cprintf (NULL, PRINT_HIGH, "%s Saving done.\n", name);
+		fclose (fpout);
+	}
+}
+
+static void SpawnCommand (int n)
+{
+	int j;
+
+	if (chedit->value) { gi.cprintf (NULL, PRINT_HIGH, "Can't spawn.\n"); return; }
+	if (n <= 0)        { gi.cprintf (NULL, PRINT_HIGH, "Specify num of bots.\n"); return; }
+
+	for (j = 0; j < n; j++)
+		SpawnBotReserving ();
+}
+
+static void RandomSpawnCommand (int n)
+{
+	int j, k, red = 0, blue = 0;
+	edict_t *e;
+
+	if (chedit->value) { gi.cprintf (NULL, PRINT_HIGH, "Can't spawn.\n"); return; }
+	if (n <= 0)        { gi.cprintf (NULL, PRINT_HIGH, "Specify num of bots.\n"); return; }
+
+	for (k = 1; k <= maxclients->value; k++)
+	{
+		e = &g_edicts[k];
+		if (e->inuse && e->client)
+		{
+			if (e->client->resp.ctf_team == CTF_TEAM1) red++;
+			else if (e->client->resp.ctf_team == CTF_TEAM2) blue++;
+		}
+	}
+
+	for (j = 0; j < n; j++)
+		SpawnBotReserving2 (&red, &blue);
+}
+
+static void RemoveCommand (int n)
+{
+	int j;
+
+	if (n <= 0) n = 1;
+	for (j = 0; j < n; j++)
+		RemoveBot ();
+}
+
+static void DebugSpawnCommand (int n)
+{
+	if (!chedit->value) { gi.cprintf (NULL, PRINT_HIGH, "Can't debug.\n"); return; }
+	if (targetindex)    { gi.cprintf (NULL, PRINT_HIGH, "Now debugging.\n"); return; }
+	if (n < 1) n = 1;
+
+	targetindex = n;
+	SpawnBotReserving ();
 }
 
 /*
@@ -75,7 +189,7 @@ static qboolean StringToFilter (char *s, ipfilter_t *f)
 		if (*s < '0' || *s > '9')
 		{
 			gi.cprintf(NULL, PRINT_HIGH, "Bad filter address: %s\n", s);
-			return false;
+			return qfalse;
 		}
 		
 		j = 0;
@@ -96,7 +210,7 @@ static qboolean StringToFilter (char *s, ipfilter_t *f)
 	f->mask = m.i;
 	f->compare = b.i;
 	
-	return true;
+	return qtrue;
 }
 
 /*
@@ -282,6 +396,22 @@ void	ServerCommand (void)
 	cmd = gi.argv(1);
 	if (Q_stricmp (cmd, "test") == 0)
 		Svcmd_Test_f ();
+	// Unified bot/route admin — verb-style aliases preferred, original
+	// 3ZB2 short forms kept for backward compatibility.
+	else if (Q_stricmp (cmd, "savechain") == 0)
+		SaveChain ();
+	else if (Q_stricmp (cmd, "addbot") == 0
+	      || Q_stricmp (cmd, "spb") == 0)
+		SpawnCommand (gi.argc() <= 2 ? 1 : atoi (gi.argv(2)));
+	else if (Q_stricmp (cmd, "addbot_balanced") == 0
+	      || Q_stricmp (cmd, "rspb") == 0)
+		RandomSpawnCommand (gi.argc() <= 2 ? 1 : atoi (gi.argv(2)));
+	else if (Q_stricmp (cmd, "removebot") == 0
+	      || Q_stricmp (cmd, "rmb") == 0)
+		RemoveCommand (gi.argc() <= 2 ? 1 : atoi (gi.argv(2)));
+	else if (Q_stricmp (cmd, "debugbot") == 0
+	      || Q_stricmp (cmd, "dsp") == 0)
+		DebugSpawnCommand (gi.argc() <= 2 ? 1 : atoi (gi.argv(2)));
 	else if (Q_stricmp (cmd, "addip") == 0)
 		SVCmd_AddIP_f ();
 	else if (Q_stricmp (cmd, "removeip") == 0)

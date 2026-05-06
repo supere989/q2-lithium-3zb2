@@ -46,6 +46,8 @@ void bobit(edict_t *ent1, edict_t *ent2, char *text) {
 		ent = g_edicts + 1 + i;
 		if(!ent->inuse)
 			continue;
+		if(ent->svflags & SVF_MONSTER)
+			continue;  /* bots have no netchan — skip */
 		if(ent == ent1 || ent == ent2 ||
 			ent->client->chase_target == ent1 || ent->client->chase_target == ent2)
 			continue;
@@ -65,6 +67,8 @@ void cobit(edict_t *self, char *text) {
 		ent = g_edicts + 1 + i;
 		if(!ent->inuse)
 			continue;
+		if(ent->svflags & SVF_MONSTER)
+			continue;  /* bots have no netchan — skip */
 		if(ent == self || ent->client->chase_target == self)
 			gi.cprintf(ent, PRINT_MEDIUM, text);
 	}

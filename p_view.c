@@ -1,6 +1,7 @@
 
 #include "g_local.h"
 #include "m_player.h"
+#include "bot.h"
 
 
 
@@ -885,13 +886,13 @@ void G_SetClientFrame (edict_t *ent)
 	client = ent->client;
 
 	if (client->ps.pmove.pm_flags & PMF_DUCKED)
-		duck = true;
+		duck = qtrue;
 	else
-		duck = false;
+		duck = qfalse;
 	if (xyspeed)
-		run = true;
+		run = qtrue;
 	else
-		run = false;
+		run = qfalse;
 
 	// check for stand/duck and stop/go transitions
 	if (duck != client->anim_duck && client->anim_priority < ANIM_DEATH)
@@ -1126,4 +1127,96 @@ void ClientEndServerFrame (edict_t *ent)
 	}
 	*/
 	//WF
+}
+
+/*
+=================
+BotEndServerFrame  (3ZB2)
+
+Called for each bot at the end of the server frame and right after spawning.
+Mirrors ClientEndServerFrame but skips network-only bits (unicast/scoreboard,
+chase-cam stats, pmove sync) since bots have no real client connection.
+=================
+*/
+void BotEndServerFrame (edict_t *ent)
+{
+	float	bobtime;
+	vec3_t	v;
+
+	current_player = ent;
+	current_client = ent->client;
+
+	if (level.intermissiontime)
+	{
+		current_client->ps.fov = 90;
+		G_SetStats (ent);
+		return;
+	}
+
+	AngleVectors (ent->client->v_angle, forward, right, up);
+
+	// burn from lava, etc
+	P_WorldEffects ();
+
+	ent->s.angles[ROLL] = 0;
+
+	// xyspeed from old_origin delta (bot drives movement directly)
+	VectorSubtract (ent->s.origin, ent->s.old_origin, v);
+	v[2] = 0;
+	xyspeed = VectorLength (v) * 10;
+
+	if (xyspeed < 5)
+	{
+		bobmove = 0;
+		current_client->bobtime = 0;
+	}
+	else if (ent->groundentity)
+	{
+		if (xyspeed > 210)
+			bobmove = 0.25;
+		else if (xyspeed > 100)
+			bobmove = 0.125;
+		else
+			bobmove = 0.0625;
+	}
+
+	bobtime = (current_client->bobtime += bobmove);
+
+	if (current_client->ps.pmove.pm_flags & PMF_DUCKED)
+		bobtime *= 4;
+
+	bobcycle = (int)bobtime;
+	bobfracsin = fabs (sin (bobtime * M_PI));
+
+	P_FallingDamage (ent);
+	P_DamageFeedback (ent);
+
+	if (!ent->deadflag)
+	{
+		SV_CalcViewOffset (ent);
+		SV_CalcGunOffset (ent);
+		G_SetClientEvent (ent);
+		G_SetClientEffects (ent);
+		G_SetClientSound (ent);
+	}
+
+	if (ent->deadflag)
+	{
+		G_SetClientEffects (ent);
+		ent->client->anim_priority = ANIM_DEATH;
+		if (ent->s.modelindex != skullindex && ent->s.modelindex != headindex)
+		{
+			if (ent->s.frame < ent->client->anim_end)
+				G_SetClientFrame (ent);
+		}
+		else
+			ent->s.frame = 0;
+	}
+	else
+		G_SetClientFrame (ent);
+
+	VectorCopy (ent->velocity, ent->client->oldvelocity);
+
+	VectorClear (ent->client->kick_origin);
+	VectorClear (ent->client->kick_angles);
 }

@@ -94,7 +94,15 @@ void Lithium_InitGame(void) {
 		snprintf(lithium_version, sizeof(lithium_version), "%1.2f-beta%d", lithium_ver, lithium_beta);
 	snprintf(lithium_modname, sizeof(lithium_modname), "Lithium II Mod v%s", lithium_version);
 
-	sscanf(gi.cvar("version", 0, 0)->string, "%f", &qver);
+	{
+		// Yamagi Q2 doesn't register a "version" cvar; supply a default so we
+		// don't dereference NULL from gi.cvar().
+		cvar_t *vc = gi.cvar("version", "3.21", 0);
+		if (vc && vc->string)
+			sscanf(vc->string, "%f", &qver);
+		else
+			qver = 3.21f;
+	}
 
 	ofp_base = lvar("ofp_base", "20", "##", VAR_NONE);
 	ofp_perplayer = lvar("ofp_perplayer", "0.75", "#.##", VAR_NONE);
@@ -316,10 +324,10 @@ qboolean Lithium_EndDMLevel(void) {
 	ent = Mapqueue_EndDMLevel();
 	if(ent) {
 		BeginIntermission(ent);
-		return true;
+		return qtrue;
 	}
 
-	return false;
+	return qfalse;
 }
 
 void Lithium_ExitLevel(void) {
@@ -431,7 +439,7 @@ qboolean Lithium_ClientConnect(edict_t *ent, char *userinfo) {
 	FILE *file;
 	char buf[256];
 	edict_t *cl_ent;
-	qboolean allow = true;
+	qboolean allow = qtrue;
 
 	file = fopen(file_gamedir(banlist->string), "rt");
 	if(file) {
@@ -462,7 +470,7 @@ qboolean Lithium_ClientConnect(edict_t *ent, char *userinfo) {
 			if(!IP_Match(ip, ban))
 				continue;
 
-			allow = false;
+			allow = qfalse;
 
 			if(max) {
 				count = 0;
@@ -477,7 +485,7 @@ qboolean Lithium_ClientConnect(edict_t *ent, char *userinfo) {
 				}
 				if(count < max) {
 					fclose(file);
-					return true;
+					return qtrue;
 				}
 			}
 		}
@@ -643,11 +651,11 @@ void Lithium_ClientDisconnect(edict_t *ent) {
 qboolean Lithium_Observer(edict_t *ent, qboolean check) {
 	if(check && ent->deadflag != DEAD_DEAD && ent->health < start_health->value) {
 		gi.cprintf(ent, PRINT_HIGH, "You must be dead or have full health to become an observer.\n");
-		return false;
+		return qfalse;
 	}
 
 	if(ent->client->hook_out)
-		return false;
+		return qfalse;
 
 	if (ctf->value && ent->solid != SOLID_NOT) {
 		CTFDeadDropFlag(ent);
@@ -671,7 +679,7 @@ qboolean Lithium_Observer(edict_t *ent, qboolean check) {
 	ent->client->invincible_framenum = 0;
 	ent->client->breather_framenum = 0;
 	ent->client->enviro_framenum = 0;
-	ent->client->grenade_blew_up = false;
+	ent->client->grenade_blew_up = qfalse;
 	ent->client->grenade_time = 0;
 
 //	ent->viewheight = 0;
@@ -704,7 +712,7 @@ qboolean Lithium_Observer(edict_t *ent, qboolean check) {
 
 	Rune_Drop(ent);
 
-	return true;
+	return qtrue;
 }
 
 void NoAmmoWeaponChange(edict_t *ent);
@@ -815,14 +823,14 @@ qboolean Lithium_ClientThink(edict_t *ent, usercmd_t *ucmd) {
 	if(level.intermissiontime) {
 		client->ps.pmove.pm_type = PM_FREEZE;
 		if(level.time > level.intermissiontime + intermission_time->value && (ucmd->buttons & BUTTON_ANY))
-			level.exitintermission = true;
+			level.exitintermission = qtrue;
 		if(intermission_maxtime->value >= 0 && level.time > level.intermissiontime + intermission_maxtime->value)
-			level.exitintermission = true;
-		return true;
+			level.exitintermission = qtrue;
+		return qtrue;
 	}
 
 	if(!ent->lclient->rate_check) {
-		ent->lclient->rate_check = true;
+		ent->lclient->rate_check = qtrue;
 		Lithium_MaxRate(ent);
 	}
 
@@ -888,7 +896,7 @@ qboolean Lithium_ClientThink(edict_t *ent, usercmd_t *ucmd) {
 	// check if it's time to remove chat muzzle
 	if(ent->lclient->muzzled && level.time > ent->lclient->muzzle_time) {
 		gi.cprintf(ent, PRINT_HIGH, "Muzzle removed, stay calm %s.\n", IsFemale(ent) ? "girl" : "boy");
-		ent->lclient->muzzled = false;
+		ent->lclient->muzzled = qfalse;
 	}
 
 	// chasecam
@@ -922,7 +930,7 @@ qboolean Lithium_ClientThink(edict_t *ent, usercmd_t *ucmd) {
 			}
 		}
 
-		return false;
+		return qfalse;
 	}
 
 	if(ent->lithium_flags & LITHIUM_ATTACKWAIT) {
@@ -950,9 +958,9 @@ qboolean Lithium_ClientThink(edict_t *ent, usercmd_t *ucmd) {
 		Hook_Service(client->hook);
 
 	if(ent->client->chase_target)
-		return true;
+		return qtrue;
 
-	return false;
+	return qfalse;
 }
 
 void Lithium_MaxRate(edict_t *ent) {
@@ -996,16 +1004,16 @@ void Lithium_ClientUserinfoChanged(edict_t *ent, char *userinfo) {
 			if(!cl_ent->inuse || !cl_ent->client)
 				continue;
 			if(ent == cl_ent->client->chase_target)
-				cl_ent->layout_update = true;
+				cl_ent->layout_update = qtrue;
 		}
 	}
 }
 
 void Lithium_LayoutOn(edict_t *ent, int flag) {
 	ent->layout |= flag;
-	ent->layout_update = true;
-	ent->client->showscores = true;
-	ent->client->showinventory = false;
+	ent->layout_update = qtrue;
+	ent->client->showscores = qtrue;
+	ent->client->showinventory = qfalse;
 }
 
 void Lithium_LayoutOff(edict_t *ent, int flag) {
@@ -1016,14 +1024,14 @@ void Lithium_LayoutOff(edict_t *ent, int flag) {
 	ent->layout &= ~flag;
 	ent->client->showscores = ent->layout ? 1 : 0;
 	if(ent->layout)
-		ent->layout_update = true;
+		ent->layout_update = qtrue;
 }
 
 void Lithium_LayoutTog(edict_t *ent, int flag) {
 	ent->layout ^= flag;
 	ent->client->showscores = ent->layout ? 1 : 0;
 	if(ent->layout)
-		ent->layout_update = true;
+		ent->layout_update = qtrue;
 }
 
 void Lithium_ClientBeginFrame(edict_t *ent) {
@@ -1084,7 +1092,7 @@ void Lithium_ClientEndFrame(edict_t *ent) {
 		if(ent->layout & LAYOUT_MENU && ent->menu->editing) {
 			strlcpy(ent->menu->edit, "  ", sizeof(ent->menu->edit));
 			Menu_EditEnd(ent);
-			ent->client->showscores = true;
+			ent->client->showscores = qtrue;
 			return;
 		}
 		if(ent->layout & LAYOUT_SCORES) {
@@ -1255,7 +1263,7 @@ void Lithium_SelectPrevItem(edict_t *ent) {
 		else
 			ent->sel = 0;
 		if(ent->sel != old)
-			ent->layout_update = true;
+			ent->layout_update = qtrue;
 		return;
 	}
 
@@ -1276,7 +1284,7 @@ void Lithium_SelectNextItem(edict_t *ent) {
 		else
 			ent->sel = MAX(0, players - ent->lclient->board_show);
 		if(ent->sel != old)
-			ent->layout_update = true;
+			ent->layout_update = qtrue;
 		return;
 	}
 
@@ -1471,12 +1479,12 @@ qboolean ChaseFind(edict_t *ent, int place, int searchdir) {
 		place = 1;
 	
 	start = place;
-	while(true) {
+	while(qtrue) {
 		for(i = 0; i < game.maxclients; i++) {
 			e = g_edicts + 1 + i;
 			if(e->inuse && (!place || e->place == place) && e != ent && e->lithium_flags & LITHIUM_PLAYING) {
 				ChaseSet(ent, e);
-				return true;
+				return qtrue;
 			}
 		}
 
@@ -1492,7 +1500,7 @@ qboolean ChaseFind(edict_t *ent, int place, int searchdir) {
 			place = 0;
 	}
 
-	return false;
+	return qfalse;
 }
 
 void ChaseStart(edict_t *ent) {
@@ -1649,7 +1657,7 @@ static qboolean loc_CanSee (edict_t *targ, edict_t *inflictor)
 
 // bmodels need special checking because their origin is 0,0,0
 	if (targ->movetype == MOVETYPE_PUSH)
-		return false; // bmodels not supported
+		return qfalse; // bmodels not supported
 
 	loc_buildboxpoints(targpoints, targ->s.origin, targ->mins, targ->maxs);
 	
@@ -1659,10 +1667,10 @@ static qboolean loc_CanSee (edict_t *targ, edict_t *inflictor)
 	for (i = 0; i < 8; i++) {
 		trace = gi.trace (viewpoint, vec3_origin, vec3_origin, targpoints[i], inflictor, MASK_SOLID);
 		if (trace.fraction == 1.0)
-			return true;
+			return qtrue;
 	}
 
-	return false;
+	return qfalse;
 }
 
 void CTFSetIDView(edict_t *ent) {
@@ -1698,7 +1706,7 @@ void CTFSetIDView(edict_t *ent) {
 	if(ent->id_ent != best) {
 		ent->id_ent = best;
 		if(ent->layout & (LAYOUT_CENTERPRINT | LAYOUT_CHASECAM | LAYOUT_ID))
-			ent->layout_update = true;
+			ent->layout_update = qtrue;
 	}
 }
 
@@ -1723,14 +1731,14 @@ char *file_gamedir(char *name) {
 qboolean file_exist(char *name) {
 	FILE *file;
 	if(!name)
-		return false;
+		return qfalse;
 	if(!strlen(name))
-		return false;
+		return qfalse;
 	file = fopen(name, "rb");
 	if(!file)
-		return false;
+		return qfalse;
 	fclose(file);
-	return true;
+	return qtrue;
 }
 
 // removing beginning and trailing whitespaces
@@ -1846,20 +1854,20 @@ qboolean Lithium_ClientCommand(edict_t *ent) {
 	char *cmd = gi.argv(0);
 
 	if(!ent->lclient)
-		return false;
+		return qfalse;
 
 	if(Menu_ClientCommand(ent))
-		return true;
+		return qtrue;
 
 	if(Admin_ClientCommand(ent))
-		return true;
+		return qtrue;
 
 	if(Vote_ClientCommand(ent))
-		return true;
+		return qtrue;
 
 	if(Q_stricmp(cmd, "use") == 0) {
 		if(!Lithium_Use(ent))
-			return false;
+			return qfalse;
 	}
 	else if(Q_stricmp(cmd, "zbotinfo") == 0) {
 		if(use_zbotkick->value)
@@ -2053,7 +2061,7 @@ qboolean Lithium_ClientCommand(edict_t *ent) {
 
 	else if(!Q_stricmp (cmd, "inven") || !Q_stricmp (cmd, "inventory")) {
 		ent->layout = 0;
-		ent->client->showscores = false;
+		ent->client->showscores = qfalse;
 		Cmd_Inven_f(ent);
 	}
 
@@ -2079,11 +2087,11 @@ qboolean Lithium_ClientCommand(edict_t *ent) {
 		while(lvar) {
 			if(!stricmp(gi.argv(1), lvar->cvar->name)) {
 				gi.cprintf(ent, PRINT_HIGH, "\"%s\" is \"%s\"\n", lvar->cvar->name, lvar->cvar->string);
-				return true;
+				return qtrue;
 			}
 			lvar = lvar->next;
 		}
-		return true;
+		return qtrue;
 	}
 
 	/*
@@ -2095,8 +2103,8 @@ qboolean Lithium_ClientCommand(edict_t *ent) {
 	*/
 
 	else
-		return false;
-	return true;
+		return qfalse;
+	return qtrue;
 }
 
 
@@ -2117,7 +2125,7 @@ qboolean Lithium_Use(edict_t *ent) {
 
 	if(ent->layout & LAYOUT_MENU) {
 		Menu_Key(ent, key);
-		return true;
+		return qtrue;
 	}
 
 	if(ent->layout & LAYOUT_SCORES) {
@@ -2130,21 +2138,21 @@ qboolean Lithium_Use(edict_t *ent) {
 		else if(key == 3)
 			ent->board = SCORES_BYFPH;
 		else 
-			return false;
-		ent->layout_update = true;
-		return true;
+			return qfalse;
+		ent->layout_update = qtrue;
+		return qtrue;
 	}
 
 	if(ent->lithium_flags & LITHIUM_OBSERVER) {
 		if(key == 0 || key == 1)
 			Lithium_Menu(ent);
-		return true;
+		return qtrue;
 	}
 	
 //	if(!Q_stricmp(gi.args(), "grapple") || !Q_stricmp(gi.args(), "hook"))
-//		return true;
+//		return qtrue;
 
-	return false;
+	return qfalse;
 }
 
 qboolean Lithium_CmdSay(edict_t *ent) {
@@ -2152,20 +2160,20 @@ qboolean Lithium_CmdSay(edict_t *ent) {
 
 	lclient_t *lclient = ent->lclient;
 	if(!lclient)
-		return false;
+		return qfalse;
 
 	// prevent v3.12/3.13 clients from spamming because of unknown command binds
 	if(*p == '+' || *p == '-') {
 		gi.cprintf(ent, PRINT_HIGH, "Unknown command \"%s\"\n", p);
-		return false;
+		return qfalse;
 	}
 
 	if(Lithium_IsHidden(ent))
-		return false;
+		return qfalse;
 
 	// being kicked already
 	if(lclient->kick_says == -1)
-		return false;
+		return qfalse;
 
 	// determine if they need kickin
 	if(level.time < lclient->kick_say_time + chatkick_time->value) {
@@ -2178,7 +2186,7 @@ qboolean Lithium_CmdSay(edict_t *ent) {
 			else
 				gi.bprintf(PRINT_HIGH, ">>> Kicking %s for chatting too much.\n", ent->client->pers.netname);
 			gi.AddCommandString(va("kick %d\n", ent - g_edicts - 1));
-			return false;
+			return qfalse;
 		}
 	}
 	else
@@ -2195,14 +2203,14 @@ qboolean Lithium_CmdSay(edict_t *ent) {
 			if(lclient->muzzles >= chatkick_muzzles->value) {
 				gi.bprintf(PRINT_HIGH, ">>> Kicking %s for chatting too much.\n", ent->client->pers.netname);
 				gi.AddCommandString(va("kick %d\n", ent - g_edicts - 1));
-				return false;
+				return qfalse;
 			}
 
 			// muzzle them
 			gi.bprintf(PRINT_HIGH, ">>> Muzzling %s for chatting too much.\n", ent->client->pers.netname);
-			lclient->muzzled = true;
+			lclient->muzzled = qtrue;
 			lclient->muzzle_time = level.time + chatmuzzle_holdtime->value;
-			return false;
+			return qfalse;
 		}
 	}
 	else
@@ -2221,10 +2229,10 @@ qboolean Lithium_CmdSay(edict_t *ent) {
 		}
 		strlcat(buf, ".\n", sizeof(buf));
 		gi.cprintf(ent, PRINT_HIGH, buf);
-		return false;
+		return qfalse;
 	}
 
-	return true;
+	return qtrue;
 }
 
 extern lvar_t *hook_damage;
@@ -2341,6 +2349,134 @@ void Lithium_Info(edict_t *ent) {
 	Menu_CancelFunc(ent, Lithium_Menu);
 }
 
+// =====================================================================
+// Bot Menu — unified surface that exposes 3ZB2 bot management through
+// the Lithium menu system instead of separate `sv` console commands.
+// =====================================================================
+
+static char botmenu_count_text[64];
+static char botmenu_botlist_text[64];
+static char botmenu_autospawn_text[64];
+static char botmenu_chedit_text[64];
+
+static int Lithium_CountBots(void) {
+	int i, n = 0;
+	edict_t *e;
+	for (i = 0; i < maxclients->value; i++) {
+		e = g_edicts + 1 + i;
+		if (e->inuse && (e->svflags & SVF_MONSTER))
+			n++;
+	}
+	return n;
+}
+
+static int Lithium_CountHumans(void) {
+	int i, n = 0;
+	edict_t *e;
+	for (i = 0; i < maxclients->value; i++) {
+		e = g_edicts + 1 + i;
+		if (e->inuse && !(e->svflags & SVF_MONSTER))
+			n++;
+	}
+	return n;
+}
+
+void Lithium_Menu(edict_t *ent);
+
+static void Lithium_BotMenu_Refresh(edict_t *ent) {
+	snprintf(botmenu_count_text, sizeof(botmenu_count_text),
+		"Bots: %d   Humans: %d   Slots: %d/%d",
+		Lithium_CountBots(), Lithium_CountHumans(),
+		Lithium_CountBots() + Lithium_CountHumans(),
+		(int)maxclients->value);
+	snprintf(botmenu_botlist_text, sizeof(botmenu_botlist_text),
+		"Botlist: %s (next-map)",
+		(botlist && botlist->string && botlist->string[0]) ? botlist->string : "default");
+	snprintf(botmenu_autospawn_text, sizeof(botmenu_autospawn_text),
+		"Autospawn: %s",
+		(autospawn && autospawn->value) ? "on" : "off");
+	snprintf(botmenu_chedit_text, sizeof(botmenu_chedit_text),
+		"Chain edit: %s (next-map)",
+		(chedit && chedit->value) ? "on" : "off");
+}
+
+// Toggle helpers — flip the cvar then re-open the menu so the labels refresh.
+static void Lithium_BotMenu(edict_t *ent);
+
+static void Lithium_ToggleAutospawn(edict_t *ent) {
+	gi.cvar_set("autospawn", (autospawn && autospawn->value) ? "0" : "1");
+	Lithium_BotMenu(ent);
+}
+
+static void Lithium_ToggleChedit(edict_t *ent) {
+	gi.cvar_set("chedit", (chedit && chedit->value) ? "0" : "1");
+	Lithium_BotMenu(ent);
+}
+
+// Cycle through the well-known 3ZBConfig.cfg botlist sections.
+static char *bot_known_lists[] = {
+	"default", "1v1sk1", "1v1sk5", "1v1sk10",
+	"2v2sk1", "2v2sk5", "2v2sk10",
+	"4v4sk1", "4v4sk5", "4v4sk10",
+};
+static void Lithium_CycleBotlist(edict_t *ent) {
+	const char *cur = (botlist && botlist->string) ? botlist->string : "default";
+	int n = sizeof(bot_known_lists) / sizeof(bot_known_lists[0]);
+	int i, next = 0;
+	for (i = 0; i < n; i++) {
+		if (!strcmp(cur, bot_known_lists[i])) {
+			next = (i + 1) % n;
+			break;
+		}
+	}
+	gi.cvar_set("botlist", bot_known_lists[next]);
+	Lithium_BotMenu(ent);
+}
+
+// Wrappers that issue the underlying `sv` command then refresh the menu so
+// the bot count updates without requiring the user to close and reopen.
+static void Lithium_BotMenu_AddBot(edict_t *ent) {
+	gi.AddCommandString("sv spb 1\n");
+	Lithium_BotMenu(ent);
+}
+static void Lithium_BotMenu_AddBalanced(edict_t *ent) {
+	gi.AddCommandString("sv rspb 1\n");
+	Lithium_BotMenu(ent);
+}
+static void Lithium_BotMenu_RemoveBot(edict_t *ent) {
+	gi.AddCommandString("sv rmb 1\n");
+	Lithium_BotMenu(ent);
+}
+static void Lithium_BotMenu_SaveChain(edict_t *ent) {
+	gi.AddCommandString("sv savechain\n");
+	Lithium_BotMenu(ent);
+}
+
+static void Lithium_BotMenu(edict_t *ent) {
+	Lithium_BotMenu_Refresh(ent);
+
+	Menu_Create(ent, 4, 17);
+	Menu_Title(ent, "Bot Menu");
+
+	Menu_AddLine(ent, MENU_TEXT,  4, botmenu_count_text, "m");
+	Menu_AddLine(ent, MENU_BLANK, 0, "", 0);
+	Menu_AddLine(ent, MENU_FUNC,  0, "Add bot",                Lithium_BotMenu_AddBot);
+	Menu_AddLine(ent, MENU_FUNC,  0, "Add balanced bot (CTF)", Lithium_BotMenu_AddBalanced);
+	Menu_AddLine(ent, MENU_FUNC,  0, "Remove last bot",        Lithium_BotMenu_RemoveBot);
+	Menu_AddLine(ent, MENU_BLANK, 0, "", 0);
+	Menu_AddLine(ent, MENU_FUNC,  0, botmenu_botlist_text,     Lithium_CycleBotlist);
+	Menu_AddLine(ent, MENU_FUNC,  0, botmenu_autospawn_text,   Lithium_ToggleAutospawn);
+	Menu_AddLine(ent, MENU_FUNC,  0, botmenu_chedit_text,      Lithium_ToggleChedit);
+	if (chedit && chedit->value) {
+		Menu_AddLine(ent, MENU_BLANK, 0, "", 0);
+		Menu_AddLine(ent, MENU_FUNC, 0, "Save chain to disk", Lithium_BotMenu_SaveChain);
+	}
+
+	Menu_AddLine(ent, MENU_TEXT, 17, "Use [ and ] keys to pick", "m");
+	Menu_AddLine(ent, MENU_TEXT, 18, "Backspace returns to main", "m");
+	Menu_CancelFunc(ent, Lithium_Menu);
+}
+
 void Lithium_Menu(edict_t *ent) {
 	Menu_Create(ent, 4, 16);
 	Menu_Title(ent, "Main Menu");
@@ -2348,6 +2484,7 @@ void Lithium_Menu(edict_t *ent) {
 	Menu_AddLine(ent, MENU_FUNC, 0, "Information", Lithium_Info);
 	if(ctf->value && !ent->client->resp.ctf_team)
 		Menu_AddLine(ent, MENU_CMD, 0, "CTF Team Menu", "inventory");
+	Menu_AddLine(ent, MENU_FUNC, 0, "Bots", Lithium_BotMenu);
 	Menu_AddLine(ent, MENU_CMD, 0, "Observer mode", "menu;observe");
 	Menu_AddLine(ent, MENU_CMD, 0, "Chasecam mode", "menu;chase");
 	Menu_AddLine(ent, MENU_CMD, 0, "Map vote", "vote");
@@ -2420,6 +2557,6 @@ void Lithium_CTFMenu(edict_t *ent) {
 
 void Lithium_UpdateCTFMenu(edict_t *ent) {
 	ent->ctf_players_time = level.time + 1.0;
-	ent->menu->changed = true;
-	ent->layout_update = true;
+	ent->menu->changed = qtrue;
+	ent->layout_update = qtrue;
 }

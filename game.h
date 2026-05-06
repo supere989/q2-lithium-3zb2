@@ -1,3 +1,5 @@
+#ifndef GAME_H
+#define GAME_H
 
 // game.h -- game dll information visible to server
 
@@ -186,7 +188,7 @@ typedef struct
 
 	qboolean	(*ClientConnect) (edict_t *ent, char *userinfo);
 	void		(*ClientBegin) (edict_t *ent);
-	void		(*ClientUserinfoChanged) (edict_t *ent, char *userinfo);
+	void		(*ClientUserinfoChanged) (edict_t *ent, char *userinfo, unsigned int uilen);
 	void		(*ClientDisconnect) (edict_t *ent);
 	void		(*ClientCommand) (edict_t *ent);
 	void		(*ClientThink) (edict_t *ent, usercmd_t *cmd);
@@ -210,7 +212,10 @@ typedef struct
 	struct edict_s	*edicts;
 	int			edict_size;
 	int			num_edicts;		// current number, <= max_edicts
-	int			max_edicts;
-} game_export_t;
+	int                     max_edicts;
+	} game_export_t;
 
-game_export_t *GetGameApi (game_import_t *import);
+	game_export_t *GetGameApi (game_import_t *import);
+
+	#endif
+

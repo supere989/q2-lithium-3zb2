@@ -1,5 +1,3 @@
-#if 0
-
 #include "g_local.h"
 
 void PMenu_Open(edict_t *ent, pmenu_t *entries, int cur, int num)
@@ -33,8 +31,8 @@ void PMenu_Open(edict_t *ent, pmenu_t *entries, int cur, int num)
 	else
 		hnd->cur = i;
 
-	ent->client->showscores = true;
-	ent->client->inmenu = true;
+	ent->client->showscores = qtrue;
+	ent->client->inmenu = qtrue;
 	ent->client->menu = hnd;
 
 	PMenu_Update(ent);
@@ -48,7 +46,7 @@ void PMenu_Close(edict_t *ent)
 
 	free(ent->client->menu);
 	ent->client->menu = NULL;
-	ent->client->showscores = false;
+	ent->client->showscores = qfalse;
 }
 
 void PMenu_Update(edict_t *ent)
@@ -59,7 +57,7 @@ void PMenu_Update(edict_t *ent)
 	int x;
 	pmenuhnd_t *hnd;
 	char *t;
-	qboolean alt = false;
+	qboolean alt = qfalse;
 
 	if (!ent->client->menu) {
 		gi.dprintf("warning:  ent has no menu\n");
@@ -75,7 +73,7 @@ void PMenu_Update(edict_t *ent)
 			continue; // blank line
 		t = p->text;
 		if (*t == '*') {
-			alt = true;
+			alt = qtrue;
 			t++;
 		}
 		snprintf(string + strlen(string), sizeof(string) - strlen(string), "yv %d ", 32 + i * 8);
@@ -95,7 +93,7 @@ void PMenu_Update(edict_t *ent)
 			snprintf(string + strlen(string), sizeof(string) - strlen(string), "string2 \"%s\" ", t);
 		else
 			snprintf(string + strlen(string), sizeof(string) - strlen(string), "string \"%s\" ", t);
-		alt = false;
+		alt = qfalse;
 	}
 
 	gi.WriteByte (svc_layout);
@@ -188,5 +186,3 @@ void PMenu_Select(edict_t *ent)
 	if (p->SelectFunc)
 		p->SelectFunc(ent, p);
 }
-
-#endif

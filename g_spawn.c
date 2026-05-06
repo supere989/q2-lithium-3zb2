@@ -1,5 +1,6 @@
 
 #include "g_local.h"
+#include "bot.h"
 
 typedef struct
 {
@@ -445,7 +446,7 @@ char *ED_ParseEdict (char *data, edict_t *ent)
 	char		keyname[256];
 	char		*com_token;
 
-	init = false;
+	init = qfalse;
 	memset (&st, 0, sizeof(st));
 
 // go through all the dictionary pairs
@@ -468,7 +469,7 @@ char *ED_ParseEdict (char *data, edict_t *ent)
 		if (com_token[0] == '}')
 			gi.error ("ED_ParseEntity: closing brace without data");
 
-		init = true;	
+		init = qtrue;	
 
 	// keynames with a leading underscore are used for utility comments,
 	// and are immediately discarded by quake
@@ -661,6 +662,14 @@ void SpawnEntities (char *mapname, char *entities, char *spawnpoint)
 //ZOID
 	CTFSetupTechSpawn();
 //ZOID
+
+	// 3ZB2: link func_train chains, load route file, link items to nodes,
+	// then schedule the heavy node-to-node trace pass for the next frame.
+	G_FindTrainTeam();
+	CTFSetupNavSpawn();
+	if (!chedit->value)
+		G_FindItemLink();
+	G_SpawnRouteLink();
 }
 
 
@@ -843,7 +852,7 @@ void SP_worldspawn (edict_t *ent)
 {
 	ent->movetype = MOVETYPE_PUSH;
 	ent->solid = SOLID_BSP;
-	ent->inuse = true;			// since the world doesn't use G_Spawn()
+	ent->inuse = qtrue;			// since the world doesn't use G_Spawn()
 	ent->s.modelindex = 1;		// world model is always index 1
 
 	//---------------
@@ -1049,5 +1058,33 @@ void SP_worldspawn (edict_t *ent)
 
 	// 63 testing
 	gi.configstring(CS_LIGHTS+63, "a");
+
+	// 3ZB2
+	//pre searched items
+	Fdi_GRAPPLE			= FindItem ("Grapple");
+	Fdi_BLASTER			= FindItem ("Blaster");
+	Fdi_SHOTGUN			= FindItem ("Shotgun");
+	Fdi_SUPERSHOTGUN	= FindItem ("Super Shotgun");
+	Fdi_MACHINEGUN		= FindItem ("Machinegun");
+	Fdi_CHAINGUN		= FindItem ("Chaingun");
+	Fdi_GRENADES		= FindItem ("Grenades");
+	Fdi_GRENADELAUNCHER	= FindItem ("Grenade Launcher");
+	Fdi_ROCKETLAUNCHER	= FindItem ("Rocket Launcher");
+	Fdi_HYPERBLASTER	= FindItem ("HyperBlaster");
+	Fdi_RAILGUN			= FindItem ("Railgun");
+	Fdi_BFG				= FindItem ("BFG10K");
+	Fdi_PHALANX			= FindItem ("Phalanx");
+	Fdi_BOOMER			= FindItem ("Ionripper");
+	Fdi_TRAP			= FindItem ("Trap");
+
+	Fdi_SHELLS			= FindItem ("Shells");
+	Fdi_BULLETS			= FindItem ("Bullets");
+	Fdi_CELLS			= FindItem ("Cells");
+	Fdi_ROCKETS			= FindItem ("Rockets");
+	Fdi_SLUGS			= FindItem ("Slugs");
+	Fdi_MAGSLUGS		= FindItem ("Mag Slug");
+
+	memset(ExplIndex,0,sizeof(ExplIndex));
+	// 3ZB2
 }
 

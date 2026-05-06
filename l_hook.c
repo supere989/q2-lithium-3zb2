@@ -60,8 +60,8 @@ void Hook_Reset(edict_t *rhook) {
    // start with NULL pointer checks
    if(rhook->owner && rhook->owner->client) {
 	   // client's hook is no longer out
-	   rhook->owner->client->hook_out = false;
-	   rhook->owner->client->hook_on = false;
+	   rhook->owner->client->hook_out = qfalse;
+	   rhook->owner->client->hook_on = qfalse;
 	   rhook->owner->client->hook = NULL;
 //	   rhook->owner->client->ps.pmove.pm_flags &= ~PMF_NO_PREDICTION;
 	}
@@ -78,7 +78,7 @@ void Hook_Reset(edict_t *rhook) {
 qboolean Hook_Check(edict_t *self) {
 	if(!self->enemy || !self->owner) {
 		Hook_Reset(self);
-		return true;
+		return qtrue;
 	}
 
 	// drop the hook if either party dies/leaves the game/etc.
@@ -86,7 +86,7 @@ qboolean Hook_Check(edict_t *self) {
 		(self->enemy->client && self->enemy->health <= 0) || 
 		(self->owner->health <= 0)) {
 		Hook_Reset(self);
-		return true;
+		return qtrue;
 	}
 
 	// drop the hook if player lets go of button
@@ -94,10 +94,10 @@ qboolean Hook_Check(edict_t *self) {
 	if(!((self->owner->client->latched_buttons|self->owner->client->buttons) & BUTTON_ATTACK)
 		&& (strcmp(self->owner->client->pers.weapon->pickup_name, "Hook") == 0)) {
 		Hook_Reset(self);
-		return true;
+		return qtrue;
 	}
 
-	return false;
+	return qfalse;
 }
 
 void Hook_Service(edict_t *self) {
@@ -223,7 +223,7 @@ void Hook_Touch(edict_t *self, edict_t *other, cplane_t *plane, csurface_t *surf
 		return;
 
 	// we are now anchored
-	self->owner->client->hook_on = true;
+	self->owner->client->hook_on = qtrue;
 //	self->owner->client->ps.pmove.pm_flags |= PMF_NO_PREDICTION;
 
 	// keep up with that thing
@@ -351,7 +351,7 @@ void Weapon_Hook_Fire(edict_t *ent) {
 		return;
 	ent->client->last_hook_time = level.time;
 
-    ent->client->hook_out = true;
+    ent->client->hook_out = qtrue;
 	ent->client->hook_damage = 0;
 
 	// calculate start position and forward direction

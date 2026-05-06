@@ -82,7 +82,7 @@ void Var_RunFrame(void) {
 			if(lvar->func)
 				lvar->func();
 			Menu_LVarChanged(lvar);
-			lvar->cvar->modified = false;
+			lvar->cvar->modified = qfalse;
 
 			Var_SetFeatures();
 		}
@@ -485,35 +485,35 @@ void Var_ClientThink(edict_t *ent) {
 		gi.cprintf(ent, PRINT_HIGH, "\nServer requires your average ping be between %d and %d.  "
 			"Yours is %d.  Sorry, disconnecting you.\n\n", (int)ping_min->value, (int)ping_max->value, pingavg);
 		gi.AddCommandString(va("kick %d\n", ent - g_edicts - 1));
-		ent->client->disconnecting = true;
+		ent->client->disconnecting = qtrue;
 	}
 }
 
 qboolean Var_SpawnEntity(edict_t *ent) {
-	if(!strcmp(ent->classname, "item_pack")) return false;
+	if(!strcmp(ent->classname, "item_pack")) return qfalse;
 
-	if(no_shotgun->value && !strcmp(ent->classname, "weapon_shotgun")) return false;
-	if(no_sshotgun->value && !strcmp(ent->classname, "weapon_supershotgun")) return false;
-	if(no_shotgun->value && no_sshotgun->value && !strcmp(ent->classname, "ammo_shells")) return false;
+	if(no_shotgun->value && !strcmp(ent->classname, "weapon_shotgun")) return qfalse;
+	if(no_sshotgun->value && !strcmp(ent->classname, "weapon_supershotgun")) return qfalse;
+	if(no_shotgun->value && no_sshotgun->value && !strcmp(ent->classname, "ammo_shells")) return qfalse;
 
-	if(no_machinegun->value && !strcmp(ent->classname, "weapon_machinegun")) return false;
-	if(no_chaingun->value && !strcmp(ent->classname, "weapon_chaingun")) return false;
-	if(no_machinegun->value && no_chaingun->value && !strcmp(ent->classname, "ammo_bullets")) return false;
+	if(no_machinegun->value && !strcmp(ent->classname, "weapon_machinegun")) return qfalse;
+	if(no_chaingun->value && !strcmp(ent->classname, "weapon_chaingun")) return qfalse;
+	if(no_machinegun->value && no_chaingun->value && !strcmp(ent->classname, "ammo_bullets")) return qfalse;
 
-	if(no_grenadelauncher->value && !strcmp(ent->classname, "weapon_grenadelauncher")) return false;
-	if(no_grenadelauncher->value && !strcmp(ent->classname, "ammo_grenades")) return false;
+	if(no_grenadelauncher->value && !strcmp(ent->classname, "weapon_grenadelauncher")) return qfalse;
+	if(no_grenadelauncher->value && !strcmp(ent->classname, "ammo_grenades")) return qfalse;
 
-	if(no_rocketlauncher->value && !strcmp(ent->classname, "weapon_rocketlauncher")) return false;
-	if(no_rocketlauncher->value && !strcmp(ent->classname, "ammo_rockets")) return false;
+	if(no_rocketlauncher->value && !strcmp(ent->classname, "weapon_rocketlauncher")) return qfalse;
+	if(no_rocketlauncher->value && !strcmp(ent->classname, "ammo_rockets")) return qfalse;
 
-	if(no_hyperblaster->value && !strcmp(ent->classname, "weapon_hyperblaster")) return false;
-	if(no_bfg->value && !strcmp(ent->classname, "weapon_bfg")) return false;
-	if(no_hyperblaster->value && no_bfg->value && !strcmp(ent->classname, "ammo_cells")) return false;
+	if(no_hyperblaster->value && !strcmp(ent->classname, "weapon_hyperblaster")) return qfalse;
+	if(no_bfg->value && !strcmp(ent->classname, "weapon_bfg")) return qfalse;
+	if(no_hyperblaster->value && no_bfg->value && !strcmp(ent->classname, "ammo_cells")) return qfalse;
 
-	if(no_railgun->value && !strcmp(ent->classname, "weapon_railgun")) return false;
+	if(no_railgun->value && !strcmp(ent->classname, "weapon_railgun")) return qfalse;
 
-	if(no_quad->value && !strcmp(ent->classname, "item_quad")) return false;
-	if(no_pent->value && !strcmp(ent->classname, "item_invulnerability")) return false;
+	if(no_quad->value && !strcmp(ent->classname, "item_quad")) return qfalse;
+	if(no_pent->value && !strcmp(ent->classname, "item_invulnerability")) return qfalse;
 
-	return true;
+	return qtrue;
 }

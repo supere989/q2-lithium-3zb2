@@ -127,6 +127,12 @@ void M_CheckGround (edict_t *ent)
 	if (ent->flags & (FL_SWIM|FL_FLY))
 		return;
 
+	// 3ZB2: bots ride client slots; seed slope to 1.0 so dist *= ground_slope
+	// in Bots_Move_NORM doesn't multiply by zero before we compute the real
+	// slope below.
+	if (ent->client)
+		ent->client->zc.ground_slope = 1.0;
+
 	if (ent->velocity[2] > 100)
 	{
 		ent->groundentity = NULL;
@@ -157,6 +163,12 @@ void M_CheckGround (edict_t *ent)
 		ent->groundentity = trace.ent;
 		ent->groundentity_linkcount = trace.ent->linkcount;
 		ent->velocity[2] = 0;
+		// 3ZB2: cache real slope/contents for bot move-speed scaling.
+		if (ent->client)
+		{
+			ent->client->zc.ground_slope = trace.plane.normal[2];
+			ent->client->zc.ground_contents = trace.contents;
+		}
 	}
 }
 
@@ -517,7 +529,7 @@ qboolean monster_start (edict_t *self)
 	if (deathmatch->value)
 	{
 		G_FreeEdict (self);
-		return false;
+		return qfalse;
 	}
 
 	if ((self->spawnflags & 4) && !(self->monsterinfo.aiflags & AI_GOOD_GUY))
@@ -558,7 +570,7 @@ qboolean monster_start (edict_t *self)
 	if (self->monsterinfo.currentmove)
 		self->s.frame = self->monsterinfo.currentmove->firstframe + (rand() % (self->monsterinfo.currentmove->lastframe - self->monsterinfo.currentmove->firstframe + 1));
 
-	return true;
+	return qtrue;
 }
 
 void monster_start_go (edict_t *self)
@@ -576,18 +588,18 @@ void monster_start_go (edict_t *self)
 		edict_t		*target;
 
 		target = NULL;
-		notcombat = false;
-		fixup = false;
+		notcombat = qfalse;
+		fixup = qfalse;
 		while ((target = G_Find (target, FOFS(targetname), self->target)) != NULL)
 		{
 			if (strcmp(target->classname, "point_combat") == 0)
 			{
 				self->combattarget = self->target;
-				fixup = true;
+				fixup = qtrue;
 			}
 			else
 			{
-				notcombat = true;
+				notcombat = qtrue;
 			}
 		}
 		if (notcombat && self->combattarget)

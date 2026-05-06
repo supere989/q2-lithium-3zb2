@@ -324,7 +324,7 @@ char *GetMOTD(void) {
 	return motdstr;
 }
 
-qboolean isnews = false;
+qboolean isnews = qfalse;
 
 char *GetNews(void) {
 	int pos, line, lines;
@@ -335,7 +335,7 @@ char *GetNews(void) {
 
 	file = fopen(file_gamedir(news->string), "rt");
 
-	isnews = false;
+	isnews = qfalse;
 
 	if(!file)
 		return "";
@@ -348,7 +348,7 @@ char *GetNews(void) {
 	if(!lines)
 		return "";
 
-	isnews = true;
+	isnews = qtrue;
 
 	pos = -60 - lines * 8;
 
@@ -426,7 +426,7 @@ int Layout_Update(edict_t *ent) {
 		if ((ent->layout_update) && !(ent->layout & LAYOUT_MENU)) {
 			size = Lithium_Scoreboard(ent, NULL);
 			gi.unicast(ent, true);
-			ent->layout_update = false;
+			ent->layout_update = qfalse;
 			return size;
 		}
 		return 0;
@@ -440,7 +440,7 @@ int Layout_Update(edict_t *ent) {
 		}
 		return 0;
 	}
-	ent->layout_update = false;
+	ent->layout_update = qfalse;
 
 	if(ent->layout & LAYOUT_MENU)
 		return Menu_Update(ent);

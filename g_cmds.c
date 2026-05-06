@@ -32,14 +32,14 @@ qboolean OnSameTeam (edict_t *ent1, edict_t *ent2)
 	char	ent2Team [512];
 
 	if (!((int)(dmflags->value) & (DF_MODELTEAMS | DF_SKINTEAMS)))
-		return false;
+		return qfalse;
 
 	strlcpy (ent1Team, ClientTeam (ent1), sizeof(ent1Team));
 	strlcpy (ent2Team, ClientTeam (ent2), sizeof(ent2Team));
 
 	if (strcmp(ent1Team, ent2Team) == 0)
-		return true;
-	return false;
+		return qtrue;
+	return qfalse;
 }
 
 
@@ -154,9 +154,9 @@ void Cmd_Give_f (edict_t *ent)
 	//WF
 
 	if (Q_stricmp(name, "all") == 0)
-		give_all = true;
+		give_all = qtrue;
 	else
-		give_all = false;
+		give_all = qfalse;
 
 	if (give_all || Q_stricmp(gi.argv(1), "health") == 0)
 	{
@@ -495,14 +495,14 @@ void Cmd_Inven_f (edict_t *ent)
 
 	cl = ent->client;
 
-	cl->showscores = false;
-	cl->showhelp = false;
+	cl->showscores = qfalse;
+	cl->showhelp = qfalse;
 
 //ZOID
 	/*//WF
 	if (ent->client->menu) {
 		PMenu_Close(ent);
-		ent->client->update_chase = true;
+		ent->client->update_chase = qtrue;
 		return;
 	}
 	*///WF
@@ -510,7 +510,7 @@ void Cmd_Inven_f (edict_t *ent)
 
 	if (cl->showinventory)
 	{
-		cl->showinventory = false;
+		cl->showinventory = qfalse;
 		return;
 	}
 
@@ -521,7 +521,7 @@ void Cmd_Inven_f (edict_t *ent)
 	}
 //ZOID
 
-	cl->showinventory = true;
+	cl->showinventory = qtrue;
 
 	gi.WriteByte (svc_inventory);
 	for (i=0 ; i<MAX_ITEMS ; i++)
@@ -754,13 +754,13 @@ Cmd_PutAway_f
 */
 void Cmd_PutAway_f (edict_t *ent)
 {
-	ent->client->showscores = false;
-	ent->client->showhelp = false;
-	ent->client->showinventory = false;
+	ent->client->showscores = qfalse;
+	ent->client->showhelp = qfalse;
+	ent->client->showinventory = qfalse;
 //ZOID
 //WF	if (ent->client->menu)
 //WF		PMenu_Close(ent);
-	ent->client->update_chase = true;
+	ent->client->update_chase = qtrue;
 //ZOID
 }
 
@@ -898,7 +898,7 @@ void Cmd_Say_f (edict_t *ent, qboolean team, qboolean arg0)
 	//WF
 
 	if (!((int)(dmflags->value) & (DF_MODELTEAMS | DF_SKINTEAMS)))
-		team = false;
+		team = qfalse;
 
 	if (team)
 		Com_sprintf (text, sizeof(text), "(%s): ", ent->client->pers.netname);

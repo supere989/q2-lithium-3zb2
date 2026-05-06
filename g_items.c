@@ -163,10 +163,10 @@ qboolean Pickup_Powerup (edict_t *ent, edict_t *other)
 
 	quantity = other->client->pers.inventory[ITEM_INDEX(ent->item)];
 	if ((skill->value == 1 && quantity >= 2) || (skill->value >= 2 && quantity >= 1))
-		return false;
+		return qfalse;
 
 	if ((coop->value) && (ent->item->flags & IT_STAY_COOP) && (quantity > 0))
-		return false;
+		return qfalse;
 
 	other->client->pers.inventory[ITEM_INDEX(ent->item)]++;
 
@@ -182,7 +182,7 @@ qboolean Pickup_Powerup (edict_t *ent, edict_t *other)
 		}
 	}
 
-	return true;
+	return qtrue;
 }
 
 void Drop_General (edict_t *ent, gitem_t *item)
@@ -206,7 +206,7 @@ qboolean Pickup_Adrenaline (edict_t *ent, edict_t *other)
 	if (!(ent->spawnflags & DROPPED_ITEM) && (deathmatch->value))
 		SetRespawn (ent, ent->item->quantity);
 
-	return true;
+	return qtrue;
 }
 
 qboolean Pickup_AncientHead (edict_t *ent, edict_t *other)
@@ -216,7 +216,7 @@ qboolean Pickup_AncientHead (edict_t *ent, edict_t *other)
 	if (!(ent->spawnflags & DROPPED_ITEM) && (deathmatch->value))
 		SetRespawn (ent, ent->item->quantity);
 
-	return true;
+	return qtrue;
 }
 
 qboolean Pickup_Bandolier (edict_t *ent, edict_t *other)
@@ -254,7 +254,7 @@ qboolean Pickup_Bandolier (edict_t *ent, edict_t *other)
 	if (!(ent->spawnflags & DROPPED_ITEM) && (deathmatch->value))
 		SetRespawn (ent, ent->item->quantity);
 
-	return true;
+	return qtrue;
 }
 
 qboolean Pickup_Pack (edict_t *ent, edict_t *other)
@@ -336,7 +336,7 @@ if(!use_packs->value) {
 	if (!(ent->spawnflags & DROPPED_ITEM) && (deathmatch->value))
 		SetRespawn (ent, ent->item->quantity);
 
-	return true;
+	return qtrue;
 }
 
 //======================================================================
@@ -431,20 +431,20 @@ qboolean Pickup_Key (edict_t *ent, edict_t *other)
 		if (strcmp(ent->classname, "key_power_cube") == 0)
 		{
 			if (other->client->pers.power_cubes & ((ent->spawnflags & 0x0000ff00)>> 8))
-				return false;
+				return qfalse;
 			other->client->pers.inventory[ITEM_INDEX(ent->item)]++;
 			other->client->pers.power_cubes |= ((ent->spawnflags & 0x0000ff00) >> 8);
 		}
 		else
 		{
 			if (other->client->pers.inventory[ITEM_INDEX(ent->item)])
-				return false;
+				return qfalse;
 			other->client->pers.inventory[ITEM_INDEX(ent->item)] = 1;
 		}
-		return true;
+		return qtrue;
 	}
 	other->client->pers.inventory[ITEM_INDEX(ent->item)]++;
-	return true;
+	return qtrue;
 }
 
 //======================================================================
@@ -455,7 +455,7 @@ qboolean Add_Ammo (edict_t *ent, gitem_t *item, int count)
 	int			max;
 
 	if (!ent->client)
-		return false;
+		return qfalse;
 
 	if (item->tag == AMMO_BULLETS)
 		max = ent->client->pers.max_bullets;
@@ -470,19 +470,19 @@ qboolean Add_Ammo (edict_t *ent, gitem_t *item, int count)
 	else if (item->tag == AMMO_SLUGS)
 		max = ent->client->pers.max_slugs;
 	else
-		return false;
+		return qfalse;
 
 	index = ITEM_INDEX(item);
 
 	if (ent->client->pers.inventory[index] == max)
-		return false;
+		return qfalse;
 
 	ent->client->pers.inventory[index] += count;
 
 	if (ent->client->pers.inventory[index] > max)
 		ent->client->pers.inventory[index] = max;
 
-	return true;
+	return qtrue;
 }
 
 qboolean Pickup_Ammo (edict_t *ent, edict_t *other)
@@ -502,7 +502,7 @@ qboolean Pickup_Ammo (edict_t *ent, edict_t *other)
 	oldcount = other->client->pers.inventory[ITEM_INDEX(ent->item)];
 
 	if (!Add_Ammo (other, ent->item, count))
-		return false;
+		return qfalse;
 
 	if (weapon && !oldcount)
 	{
@@ -512,7 +512,7 @@ qboolean Pickup_Ammo (edict_t *ent, edict_t *other)
 
 	if (!(ent->spawnflags & (DROPPED_ITEM | DROPPED_PLAYER_ITEM)) && (deathmatch->value))
 		SetRespawn (ent, 30);
-	return true;
+	return qtrue;
 }
 
 void Drop_Ammo (edict_t *ent, gitem_t *item)
@@ -585,7 +585,7 @@ qboolean Pickup_Health (edict_t *ent, edict_t *other)
 
 	if (!(ent->style & HEALTH_IGNORE_MAX))
 		if (other->health >= other->max_health)
-			return false;
+			return qfalse;
 
 	//WF
 //	other->health += ent->count;
@@ -620,7 +620,7 @@ qboolean Pickup_Health (edict_t *ent, edict_t *other)
 			SetRespawn (ent, 30);
 	}
 
-	return true;
+	return qtrue;
 }
 
 //======================================================================
@@ -719,7 +719,7 @@ qboolean Pickup_Armor (edict_t *ent, edict_t *other)
 
 			// if we're already maxed out then we don't need the new armor
 			if (other->client->pers.inventory[old_armor_index] >= newcount)
-				return false;
+				return qfalse;
 
 			// update current armor value
 			other->client->pers.inventory[old_armor_index] = newcount;
@@ -729,7 +729,7 @@ qboolean Pickup_Armor (edict_t *ent, edict_t *other)
 	if (!(ent->spawnflags & DROPPED_ITEM) && (deathmatch->value))
 		SetRespawn (ent, 20);
 
-	return true;
+	return qtrue;
 }
 
 //======================================================================
@@ -790,7 +790,7 @@ qboolean Pickup_PowerArmor (edict_t *ent, edict_t *other)
 			ent->item->use (other, ent->item);
 	}
 
-	return true;
+	return qtrue;
 }
 
 void Drop_PowerArmor (edict_t *ent, gitem_t *item)
@@ -2454,4 +2454,173 @@ void SetItemNames (void)
 	body_armor_index   = ITEM_INDEX(FindItem("Body Armor"));
 	power_screen_index = ITEM_INDEX(FindItem("Power Screen"));
 	power_shield_index = ITEM_INDEX(FindItem("Power Shield"));
+}
+
+/*
+================
+droptofloor2  (3ZB2)
+
+Variant of droptofloor used for items spawned riding on a moving union_ent
+(plat / train carrier). Walks the carrier's vertical extent to find the
+resting position before sliding the item to the floor.
+================
+*/
+void droptofloor2 (edict_t *ent)
+{
+	vec3_t  trmin, trmax, min, mins, maxs;
+	float   i, j, yaw;
+
+	trace_t tr;
+	vec3_t  dest;
+	float   *v;
+
+	v = tv (-15, -15, -15);
+	VectorCopy (v, ent->mins);
+	v = tv (8, 8, 15);
+	VectorCopy (v, ent->maxs);
+
+	if (ent->union_ent && Q_stricmp (ent->classname, "R_navi2"))
+	{
+		dest[0] = (ent->union_ent->s.origin[0] + ent->union_ent->mins[0] + ent->union_ent->s.origin[0] + ent->union_ent->maxs[0]) / 2;
+		dest[1] = (ent->union_ent->s.origin[1] + ent->union_ent->mins[1] + ent->union_ent->s.origin[1] + ent->union_ent->maxs[1]) / 2;
+
+		j = 0;
+		for (i = ent->union_ent->s.origin[2] + ent->union_ent->mins[2];
+		     i <= ent->union_ent->s.origin[2] + ent->union_ent->maxs[2] + 16;
+		     i++)
+		{
+			dest[2] = i;
+			tr = gi.trace (dest, ent->mins, ent->maxs, dest, ent, MASK_SOLID);
+			if ((!tr.startsolid && !tr.allsolid) && j == 1)
+			{
+				j = 2;
+				break;
+			}
+			else if ((tr.startsolid || tr.allsolid) && j == 0 && tr.ent == ent->union_ent)
+				j = 1;
+		}
+		VectorCopy (dest, ent->s.origin);
+		VectorSubtract (ent->s.origin, ent->union_ent->s.origin, ent->moveinfo.dir);
+	}
+
+	ent->s.modelindex = 0;
+	if (Q_stricmp (ent->classname, "R_navi3") == 0)
+		ent->solid = SOLID_NOT;
+	else
+		ent->solid = SOLID_TRIGGER;
+	ent->movetype = MOVETYPE_TOSS;
+	ent->touch = Touch_Item;
+	ent->use = NULL;
+
+	v = tv (0, 0, -128);
+	VectorAdd (ent->s.origin, v, dest);
+
+	tr = gi.trace (ent->s.origin, ent->mins, ent->maxs, dest, ent, MASK_SOLID);
+	if (tr.startsolid && ent->classname[0] != 'R' && ent->classname[6] != 'X')
+	{
+		G_FreeEdict (ent);
+		return;
+	}
+
+	VectorCopy (tr.endpos, ent->s.origin);
+
+	if (ent->team)
+	{
+		ent->flags &= ~FL_TEAMSLAVE;
+		ent->chain = ent->teamchain;
+		ent->teamchain = NULL;
+
+		ent->svflags |= SVF_NOCLIENT;
+		ent->solid = SOLID_NOT;
+		if (ent == ent->teammaster)
+		{
+			ent->nextthink = level.time + FRAMETIME;
+			ent->think = DoRespawn;
+		}
+	}
+
+	if (ent->spawnflags & 2)	// NO_TOUCH
+	{
+		ent->solid = SOLID_BBOX;
+		ent->touch = NULL;
+		ent->s.effects &= ~EF_ROTATE;
+		ent->s.renderfx &= ~RF_GLOW;
+	}
+
+	if (ent->spawnflags & 1)	// TRIGGER_SPAWN
+	{
+		ent->svflags |= SVF_NOCLIENT;
+		ent->solid = SOLID_NOT;
+		ent->use = Use_Item;
+	}
+
+	gi.linkentity (ent);
+
+	{
+		VectorCopy (ent->s.origin, min);
+		VectorSet (mins, -15, -15, -15);
+		VectorSet (maxs, 8, 8, 0);
+		min[2] -= 128;
+		for (i = 0; i < 8; i++)
+		{
+			if (i < 4)
+			{
+				yaw = 90 * i - 180;
+				yaw = yaw * M_PI * 2 / 360;
+				for (j = 32; j < 80; j += 2)
+				{
+					trmin[0] = ent->s.origin[0] + cos (yaw) * j;
+					trmin[1] = ent->s.origin[1] + sin (yaw) * j;
+					trmin[2] = ent->s.origin[2];
+					VectorCopy (trmin, trmax);
+					trmax[2] -= 128;
+					tr = gi.trace (trmin, mins, maxs, trmax, ent, MASK_PLAYERSOLID);
+					if (tr.endpos[2] < ent->s.origin[2] - 16 && tr.endpos[2] > min[2] && !tr.allsolid && !tr.startsolid)
+					{
+						min[2] = tr.endpos[2];
+						min[0] = ent->s.origin[0] + cos (yaw) * (j + 16);
+						min[1] = ent->s.origin[1] + sin (yaw) * (j + 16);
+						break;
+					}
+				}
+			}
+			else
+			{
+				yaw = 90 * (i - 4) - 135;
+				yaw = yaw * M_PI * 2 / 360;
+				for (j = 32; j < 80; j += 2)
+				{
+					trmin[0] = ent->s.origin[0] + cos (yaw) * 46;
+					trmin[1] = ent->s.origin[1] + sin (yaw) * 46;
+					trmin[2] = ent->s.origin[2];
+					VectorCopy (trmin, trmax);
+					trmax[2] -= 128;
+					tr = gi.trace (trmin, NULL, NULL, trmax, ent, MASK_PLAYERSOLID);
+					if (tr.endpos[2] < ent->s.origin[2] - 16 && tr.endpos[2] > min[2] && !tr.allsolid && !tr.startsolid)
+					{
+						VectorCopy (tr.endpos, min);
+						break;
+					}
+				}
+			}
+		}
+		VectorCopy (min, ent->moveinfo.start_origin);
+	}
+}
+
+/*
+================
+SpawnItem3  (3ZB2)
+
+Bot-spawned item helper; queues droptofloor2 and hides the item until then.
+================
+*/
+void SpawnItem3 (edict_t *ent, gitem_t *item)
+{
+	ent->item = item;
+	ent->nextthink = level.time + 2 * FRAMETIME;	// items start after other solids
+	ent->think = droptofloor2;
+	ent->s.effects = 0;
+	ent->s.renderfx = 0;
+	ent->s.modelindex = 0;
 }

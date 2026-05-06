@@ -53,7 +53,7 @@ lvar_t *lmaster_port;
 cvar_t *hostname;
 cvar_t *port;
 
-qboolean redir = false;
+qboolean redir = qfalse;
 char redir_addr[BUF_LEN];
 char redir_port[BUF_LEN];
 
@@ -63,7 +63,7 @@ lclient_t *get_lclient(int id) {
 
 	for(i = 0; i < game.maxclients; i++) {
 		ent = g_edicts + 1 + i;
-		if(!ent->inuse)
+		if(!ent->inuse || (ent->svflags & SVF_MONSTER))
 			continue;
 		if(id == ent->lclient->id)
 			return ent->lclient;
@@ -181,10 +181,10 @@ void LNet_RunFrame(void) {
 
 		else if(level.time > net_trytime + RETRY_WAIT) {
 #ifdef DEBUG
-			static qboolean first_fail = true;
+			static qboolean first_fail = qtrue;
 			if(first_fail)
 				gi.dprintf("*** Failed connecting to lmaster server\n");
-			first_fail = false;
+			first_fail = qfalse;
 #endif
 			LNet_Close();
 			net_trytime = level.time + RETRY_DELAY;
@@ -413,9 +413,9 @@ void LNet_Recv(char *buf) {
 		LNet_Close();
 		net_trytime = level.time + 2;
 
-		redir = true;
+		redir = qtrue;
 		lmaster_lookup();
-		redir = false;
+		redir = qfalse;
 	}
 
 	else if(!strcmp(cmd, "cvar")) {
@@ -555,14 +555,14 @@ qboolean LNet_ClientCommand(edict_t *ent) {
 	char *cmd = gi.argv(0);
 
 	if(!ent->lclient)
-		return false;
+		return qfalse;
 
 	if(!net_talk) {
 		if(cmd[0] == '.') {
 			gi.cprintf(ent, 4, "*** Server not connected to lmaster\n");
-			return true;
+			return qtrue;
 		}
-		return false;
+		return qfalse;
 	}
 
 	if(!Q_stricmp(cmd, ".help") && !net_lhelp) {
@@ -594,14 +594,14 @@ qboolean LNet_ClientCommand(edict_t *ent) {
 	else if(!Q_stricmp(cmd, ".whois") || !Q_stricmp(cmd, ".w")) {
 		if(gi.argc() < 2) {
 			gi.cprintf(ent, 4, "*** Need to specify a client name\n");
-			return true;
+			return qtrue;
 		}
 		Net_Sendf(net_sock, "whois" DELIM "%d" DELIM "%s", ent->lclient->id, gi.args());
 	}
 	else if(!Q_stricmp(cmd, ".join") || !Q_stricmp(cmd, ".j")) {
 		if(gi.argc() < 2) {
 			gi.cprintf(ent, 4, "*** Need to specify a channel name\n");
-			return true;
+			return qtrue;
 		}
 		strlcpy(ent->lclient->chan, gi.argv(1), sizeof(ent->lclient->chan));
 		Net_Sendf(net_sock, "join" DELIM "%d" DELIM "%s", ent->lclient->id, gi.argv(1));
@@ -639,6 +639,6 @@ qboolean LNet_ClientCommand(edict_t *ent) {
 		Net_Sendf(net_sock, "chat" DELIM "%d" DELIM "%s", ent->lclient->id, buf);
 	}
 	else
-		return false;
-	return true;
+		return qfalse;
+	return qtrue;
 }

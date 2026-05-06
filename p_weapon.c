@@ -113,7 +113,7 @@ qboolean Pickup_Weapon (edict_t *ent, edict_t *other)
 		&& other->client->pers.inventory[index])
 	{
 		if (!(ent->spawnflags & (DROPPED_ITEM | DROPPED_PLAYER_ITEM) ) )
-			return false;	// leave the weapon for others to pickup
+			return qfalse;	// leave the weapon for others to pickup
 	}
 
 	other->client->pers.inventory[index]++;
@@ -159,7 +159,7 @@ qboolean Pickup_Weapon (edict_t *ent, edict_t *other)
 	*/
 	//WF
 
-	return true;
+	return qtrue;
 }
 
 
@@ -731,7 +731,7 @@ void Weapon_Grenade (edict_t *ent)
 			{
 				ent->client->weapon_sound = 0;
 				weapon_grenade_fire (ent, true);
-				ent->client->grenade_blew_up = true;
+				ent->client->grenade_blew_up = qtrue;
 			}
 
 			if (ent->client->buttons & BUTTON_ATTACK)
@@ -742,7 +742,7 @@ void Weapon_Grenade (edict_t *ent)
 				if (level.time >= ent->client->grenade_time)
 				{
 					ent->client->ps.gunframe = 15;
-					ent->client->grenade_blew_up = false;
+					ent->client->grenade_blew_up = qfalse;
 				}
 				else
 				{
@@ -1575,3 +1575,12 @@ void Weapon_BFG (edict_t *ent)
 
 
 //======================================================================
+
+// 3ZB2 Merge Stubs
+void weapon_phalanx_fire (edict_t *ent) {}
+void Weapon_Phalanx (edict_t *ent) {}
+void weapon_ionripper_fire (edict_t *ent) {}
+void Weapon_Ionripper (edict_t *ent) {}
+void weapon_trap_fire (edict_t *ent) {}
+void Weapon_Trap (edict_t *ent) {}
+void ShowGun(edict_t *ent) {}

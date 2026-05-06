@@ -1,6 +1,7 @@
 // g_combat.c
 
 #include "g_local.h"
+#include "bot.h"
 
 // from g_ai.c
 qboolean visible (edict_t *self, edict_t *other)
@@ -16,8 +17,8 @@ qboolean visible (edict_t *self, edict_t *other)
 	trace = gi.trace (spot1, vec3_origin, vec3_origin, spot2, self, MASK_OPAQUE);
 	
 	if (trace.fraction == 1.0)
-		return true;
-	return false;
+		return qtrue;
+	return qfalse;
 }
 
 /*
@@ -40,46 +41,46 @@ qboolean CanDamage (edict_t *targ, edict_t *inflictor)
 		VectorScale (dest, 0.5, dest);
 		trace = gi.trace (inflictor->s.origin, vec3_origin, vec3_origin, dest, inflictor, MASK_SOLID);
 		if (trace.fraction == 1.0)
-			return true;
+			return qtrue;
 		if (trace.ent == targ)
-			return true;
-		return false;
+			return qtrue;
+		return qfalse;
 	}
 	
 	trace = gi.trace (inflictor->s.origin, vec3_origin, vec3_origin, targ->s.origin, inflictor, MASK_SOLID);
 	if (trace.fraction == 1.0)
-		return true;
+		return qtrue;
 
 	VectorCopy (targ->s.origin, dest);
 	dest[0] += 15.0;
 	dest[1] += 15.0;
 	trace = gi.trace (inflictor->s.origin, vec3_origin, vec3_origin, dest, inflictor, MASK_SOLID);
 	if (trace.fraction == 1.0)
-		return true;
+		return qtrue;
 
 	VectorCopy (targ->s.origin, dest);
 	dest[0] += 15.0;
 	dest[1] -= 15.0;
 	trace = gi.trace (inflictor->s.origin, vec3_origin, vec3_origin, dest, inflictor, MASK_SOLID);
 	if (trace.fraction == 1.0)
-		return true;
+		return qtrue;
 
 	VectorCopy (targ->s.origin, dest);
 	dest[0] -= 15.0;
 	dest[1] += 15.0;
 	trace = gi.trace (inflictor->s.origin, vec3_origin, vec3_origin, dest, inflictor, MASK_SOLID);
 	if (trace.fraction == 1.0)
-		return true;
+		return qtrue;
 
 	VectorCopy (targ->s.origin, dest);
 	dest[0] -= 15.0;
 	dest[1] -= 15.0;
 	trace = gi.trace (inflictor->s.origin, vec3_origin, vec3_origin, dest, inflictor, MASK_SOLID);
 	if (trace.fraction == 1.0)
-		return true;
+		return qtrue;
 
 
-	return false;
+	return qfalse;
 }
 
 
@@ -390,12 +391,12 @@ qboolean CheckTeamDamage (edict_t *targ, edict_t *attacker)
 	if (ctf->value && targ->client && attacker->client)
 		if (targ->client->resp.ctf_team == attacker->client->resp.ctf_team &&
 			targ != attacker)
-			return true;
+			return qtrue;
 //ZOID
 
 		//FIXME make the next line real and uncomment this block
 		// if ((ability to damage a teammate == OFF) && (targ's team == attacker's team))
-	return false;
+	return qfalse;
 }
 
 void T_Damage (edict_t *targ, edict_t *inflictor, edict_t *attacker, vec3_t dir, vec3_t point, vec3_t normal, int damage, int knockback, int dflags, int mod)
@@ -418,6 +419,19 @@ void T_Damage (edict_t *targ, edict_t *inflictor, edict_t *attacker, vec3_t dir,
 	damage = Rune_AdjustDamage(targ, attacker, damage);
 	//WF
 
+	if(mod == MOD_CRUSH)
+	{
+		//bot's state change
+		if((targ->svflags & SVF_MONSTER) && targ->client)
+		{
+			if((targ->client->zc.waitin_obj == inflictor && targ->client->zc.zcstate)
+				|| targ->groundentity == inflictor)
+			{
+				targ->client->zc.zcstate |= STS_W_DONT;
+			}
+		}
+	}
+
 	// friendly fire avoidance
 	// if enabled you can't hurt teammates (but you can hurt yourself)
 	// knockback still occurs
@@ -429,6 +443,10 @@ void T_Damage (edict_t *targ, edict_t *inflictor, edict_t *attacker, vec3_t dir,
 				damage = 0;
 			else
 				mod |= MOD_FRIENDLY_FIRE;
+		}
+		else if(targ->client && !(targ->svflags & SVF_MONSTER))
+		{
+			if(attacker->client) targ->client->zc.first_target = attacker;
 		}
 	}
 	meansOfDeath = mod;
@@ -560,7 +578,27 @@ void T_Damage (edict_t *targ, edict_t *inflictor, edict_t *attacker, vec3_t dir,
 	if (take)
 	{
 		if ((targ->svflags & SVF_MONSTER) || (client))
+		{
 			SpawnDamage (TE_BLOOD, point, normal, take);
+			if(client && (targ->svflags & SVF_MONSTER) && attacker)
+			{
+				if(client->zc.battlemode & FIRE_CHIKEN) client->zc.battlemode &= ~FIRE_CHIKEN;
+
+				if(mod == MOD_RAILGUN 
+				|| mod == MOD_BFG_LASER
+				|| mod == MOD_ROCKET
+				|| mod == MOD_BLASTER
+				|| mod == MOD_HYPERBLASTER)
+				{
+					if(attacker->client
+						&& (9 * random() < Bot[client->zc.botindex].param[BOP_REACTION])
+						&& !client->zc.first_target)
+					{
+						if(!OnSameTeam (targ, attacker)) client->zc.first_target = attacker;
+					}
+				}
+			}
+		}
 		else
 			SpawnDamage (te_sparks, point, normal, take);
 

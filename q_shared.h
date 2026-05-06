@@ -1,4 +1,6 @@
-	
+	#ifndef Q_SHARED_H
+#define Q_SHARED_H
+
 // q_shared.h -- included first by ALL program modules
 
 #ifdef _WIN32
@@ -35,7 +37,7 @@
 #endif
 
 typedef unsigned char 		byte;
-typedef enum {false, true}	qboolean;
+typedef enum {qfalse, qtrue}	qboolean;
 
 
 #ifndef NULL
@@ -375,6 +377,10 @@ COLLISION DETECTION
 #define	MASK_OPAQUE				(CONTENTS_SOLID|CONTENTS_SLIME|CONTENTS_LAVA)
 #define	MASK_SHOT				(CONTENTS_SOLID|CONTENTS_MONSTER|CONTENTS_WINDOW|CONTENTS_DEADMONSTER)
 #define MASK_CURRENT			(CONTENTS_CURRENT_0|CONTENTS_CURRENT_90|CONTENTS_CURRENT_180|CONTENTS_CURRENT_270|CONTENTS_CURRENT_UP|CONTENTS_CURRENT_DOWN)
+
+#define	MASK_BOTSOLID			(CONTENTS_SOLID|CONTENTS_LADDER/*CONTENTS_PLAYERCLIP*/|CONTENTS_WINDOW|CONTENTS_MONSTER)
+#define	MASK_BOTSOLIDX			(CONTENTS_SOLID|CONTENTS_WINDOW|CONTENTS_PLAYERCLIP|CONTENTS_MONSTER)
+#define	MASK_GROUND				(CONTENTS_SOLID|CONTENTS_WINDOW|CONTENTS_MONSTER)
 
 
 // gi.BoxEdicts() can return a list of either solid or trigger entities
@@ -992,6 +998,8 @@ typedef enum
 #define STAT_CHASE				16
 #define STAT_SPECTATOR			17
 
+#define STAT_SIGHT_PIC			31
+
 #define	MAX_STATS				32
 
 
@@ -1176,8 +1184,10 @@ typedef struct
 // PGM 
 #define VIDREF_GL		1
 #define VIDREF_SOFT		2
-#define VIDREF_OTHER	3
+#define VIDREF_OTHER    3
 
 extern int vidref_val;
 // PGM
 // ==================
+#endif
+

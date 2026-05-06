@@ -34,7 +34,7 @@ lvar_t *admin_dmflags;
 lvar_t *admin_uses;
 lvar_t *admin_vars;
 
-qboolean admin_override = false;
+qboolean admin_override = qfalse;
 
 void Admin_InitGame(void) {
 	admin_code = lvar("admin_code", "0", "#####", VAR_NONE);
@@ -73,13 +73,13 @@ qboolean Admin_Validate(edict_t *ent) {
 	int entries;
 
 	if(ent->admin)
-		return true;
+		return qtrue;
 
 	file = fopen(file_gamedir(adminlist->string), "rt");
 	if(!file) {
 		if(admin_code->value)
 			Admin_Code(ent);
-		return false;
+		return qfalse;
 	}
 
 	if(strlen(gi.argv(1)))
@@ -119,15 +119,15 @@ qboolean Admin_Validate(edict_t *ent) {
 
 		IP_Scan(ipmask, ip);
 
-		match = false;
+		match = qfalse;
 
 		if(!strcmp(username, "*") || !strcmp(username, ent->client->pers.netname))
-			match = true;
+			match = qtrue;
 		else {
 			c = strchr(username, '*');
 			if(c) {
 				if(!strncmp(username, ent->client->pers.netname, strlen(username) - 1))
-					match = true;
+					match = qtrue;
 			}
 		}
 
@@ -136,7 +136,7 @@ qboolean Admin_Validate(edict_t *ent) {
 			ent->admin = access;
 
 			fclose(file);
-			return true;
+			return qtrue;
 		}
 	}
 
@@ -144,20 +144,20 @@ qboolean Admin_Validate(edict_t *ent) {
 
 	if(admin_code->value && !strlen(gi.argv(1))) {
 		Admin_Code(ent);
-		return false;
+		return qfalse;
 	}
 
 	gi.cprintf(ent, PRINT_HIGH, "Invalid admin login.\n");
 
-	return false;
+	return qfalse;
 }
 
 qboolean Admin_Access(edict_t *ent, lvar_t *lvar) {
 	if(ent->admin < lvar->value) {
 		gi.cprintf(ent, PRINT_HIGH, "Admin level %d required.\n", (int)lvar->value);
-		return false;
+		return qfalse;
 	}
-	return true;
+	return qtrue;
 }
 
 void Admin_ClientSettings(edict_t *ent) {
@@ -192,7 +192,7 @@ void Admin_ItemSettings(edict_t *ent) {
 }
 
 void Admin(edict_t *ent) {
-	qboolean validated = true;
+	qboolean validated = qtrue;
 	if(!ent->admin && !Admin_Validate(ent))
 		return;
 
@@ -344,7 +344,7 @@ void Admin_MapN(edict_t *ent) {
 	char buf[80];
 	Lithium_ExitLevel();
 	snprintf(buf, sizeof(buf), "gamemap %s\n", gi.argv(1));
-	resetqueue = true;
+	resetqueue = qtrue;
 	gi.AddCommandString(buf);
 }
 
@@ -354,7 +354,7 @@ void Admin_MapI(edict_t *ent) {
 
 	Menu_Destroy(ent);
 
-	admin_override = true;
+	admin_override = qtrue;
 	Mapqueue_Override(gi.argv(1));
 	gi.bprintf(PRINT_HIGH, "%s has set next map: %s.\n", ent->client->pers.netname, gi.argv(1));
 
@@ -367,7 +367,7 @@ void Admin_MapW(edict_t *ent) {
 
 	Menu_Destroy(ent);
 
-	admin_override = true;
+	admin_override = qtrue;
 	Mapqueue_Override(gi.argv(1));
 	gi.bprintf(PRINT_HIGH, "%s has set next map: %s.\n", ent->client->pers.netname, gi.argv(1));
 }
@@ -596,7 +596,7 @@ qboolean Admin_ClientCommand(edict_t *ent) {
 	if(!Q_stricmp(cmd, "admin_code")) {
 		if(strlen(gi.argv(1)))
 			ent->admin_code = atoi(gi.argv(1));
-		return true;
+		return qtrue;
 	}
 	else if(!Q_stricmp(cmd, "admin"))
 		Admin(ent);
@@ -639,14 +639,14 @@ qboolean Admin_ClientCommand(edict_t *ent) {
 					if(Admin_Access(ent, admin_vars))
 						gi.cvar_set(lvar->cvar->name, gi.argv(1));
 				}
-				return true;
+				return qtrue;
 			}
 			lvar = lvar->next;
 		}
-		return false;
+		return qfalse;
 	}
 	else
-		return false;
-	return true;
+		return qfalse;
+	return qtrue;
 }
 

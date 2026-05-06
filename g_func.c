@@ -1513,7 +1513,7 @@ void train_next (edict_t *self)
 	vec3_t		dest;
 	qboolean	first;
 
-	first = true;
+	first = qtrue;
 again:
 	if (!self->target)
 	{
@@ -1538,7 +1538,7 @@ again:
 			gi.dprintf ("connected teleport path_corners, see %s at %s\n", ent->classname, vtos(ent->s.origin));
 			return;
 		}
-		first = false;
+		first = qfalse;
 		VectorSubtract (ent->s.origin, self->mins, self->s.origin);
 		VectorCopy (self->s.origin, self->s.old_origin);
 		self->s.event = EV_OTHER_TELEPORT;

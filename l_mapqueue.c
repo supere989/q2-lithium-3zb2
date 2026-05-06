@@ -32,7 +32,7 @@ cvar_t *mapqueue_pos;
 lvar_t *use_mapqueue;
 lvar_t *mapqueue_resetonvote;
 
-qboolean resetqueue = false;
+qboolean resetqueue = qfalse;
 
 char *override_map = NULL;
 char *last_override_map = NULL;
@@ -75,7 +75,7 @@ edict_t *Mapqueue_EndDMLevel(void) {
 		map = override_map;
 		last_override_map = override_map;
 		override_map = NULL;
-		admin_override = false;
+		admin_override = qfalse;
 		resetqueue = mapqueue_resetonvote->value;
 	}
 	else {
@@ -140,7 +140,7 @@ char *Mapqueue_GetMapName(void) {
 	FILE *file;
 	char *c, buf[256];
 	int i, count, pos;
-	qboolean newlist = false;
+	qboolean newlist = qfalse;
 
 	if(!use_mapqueue->value || !strlen(mapqueue->string))
 		return NULL;
@@ -158,7 +158,7 @@ char *Mapqueue_GetMapName(void) {
 	fseek(file, 0, SEEK_SET);
 
 	if(!first->value && (resetqueue || strcmp(level.mapname, lastmap) || maps != lastmaps || strcmp(mapqueue->string, lastmapqueue)))
-		newlist = true;
+		newlist = qtrue;
 
 	strlcpy(lastmapqueue, mapqueue->string, sizeof(lastmapqueue));
 	strlcpy(lastmap, level.mapname, sizeof(lastmap));
@@ -224,7 +224,7 @@ char *Mapqueue_GetMapName(void) {
 
 	fclose(file);
 
-	resetqueue = false;
+	resetqueue = qfalse;
 	mapqueue_pos->value++;
 
 	if(!strlen(map))
@@ -281,7 +281,7 @@ qboolean Mapqueue_Valid(char *filename, char *mapname) {
 	if(!file)
 		file = fopen(file_gamedir(mapqueue->string), "rt");
 	if(!file)
-		return false;
+		return qfalse;
 
 	while(fgets(buf, 256, file)) {
 		if(!strip(buf))
@@ -290,10 +290,10 @@ qboolean Mapqueue_Valid(char *filename, char *mapname) {
 		Mapqueue_SplitLine(buf, map, NULL, NULL, NULL);
 		if(!stricmp(mapname, map)) {
 			fclose(file);
-			return true;
+			return qtrue;
 		}
 	}
 	fclose(file);
 
-	return false;
+	return qfalse;
 }

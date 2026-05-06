@@ -1,3 +1,6 @@
+#ifndef LITHIUM_H
+#define LITHIUM_H
+
 /*============================================================================
 
     This file is part of Lithium II Mod for Quake II
@@ -541,3 +544,5 @@ void Highscores_Scoreboard(char *string, unsigned int strlen, int *down);
 int Highscores_FullScoreboard(edict_t *ent);
 
 //#include "camclient.h"
+
+#endif

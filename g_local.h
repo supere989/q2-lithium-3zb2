@@ -1,3 +1,6 @@
+#ifndef G_LOCAL_H
+#define G_LOCAL_H
+
 // g_local.h -- local definitions for game module
 
 #include <stdint.h>
@@ -8,9 +11,10 @@
 // because we define the full size ones in this file
 #define	GAME_INCLUDE
 #include "game.h"
+#include "botstr.h"
 
 // the "gameversion" client command will print this plus compile date
-#define	GAMEVERSION	"baseq2"
+#define	GAMEVERSION	"Lithium+3ZB2-Merged"
 
 // protocol bytes that can be directly added to messages
 #define	svc_muzzleflash		1
@@ -213,8 +217,25 @@ typedef struct
 #define WEAP_GRENADELAUNCHER	7 
 #define WEAP_ROCKETLAUNCHER		8 
 #define WEAP_HYPERBLASTER		9 
-#define WEAP_RAILGUN			10
-#define WEAP_BFG				11
+#define WEAP_RAILGUN                    10
+#define WEAP_BFG                                11
+#define WEAP_PHALANX                    12
+#define WEAP_BOOMER                             13
+
+#define WEAP_DISRUPTOR                  12              // PGM
+#define WEAP_ETFRIFLE                   13              // PGM
+#define WEAP_PLASMA                             14              // PGM
+#define WEAP_PROXLAUNCH                 15              // PGM
+#define WEAP_CHAINFIST                  16              // PGM
+
+#define WEAP_TRAP                               17
+
+#define WEAP_GRAPPLE                    20
+
+#define MPI_QUAD                                21
+#define MPI_PENTA                               22
+#define MPI_QUADF                               23
+
 
 typedef struct gitem_s
 {
@@ -855,6 +876,8 @@ typedef struct
 	int			max_grenades;
 	int			max_cells;
 	int			max_slugs;
+	int			max_magslug;
+	int			max_trap;
 
 	gitem_t		*weapon;
 	gitem_t		*lastweapon;
@@ -912,7 +935,7 @@ struct gclient_s
 	qboolean	showscores;			// set layout stat
 //ZOID
 	qboolean	inmenu;				// in menu
-//WF	pmenuhnd_t	*menu;				// current menu
+	struct pmenuhnd_s	*menu;		// current menu (CTF/3zb2 PMenu handle)
 //ZOID
 	qboolean	showinventory;		// set layout stat
 	qboolean	showhelp;
@@ -1019,6 +1042,7 @@ struct gclient_s
 	float		last_hook_time;
 	int			hook_damage;
 //WF
+	zgcl_t		zc;					//zigock client info
 };
 
 //WF
@@ -1086,6 +1110,9 @@ struct edict_s
 	char		*deathtarget;
 	char		*combattarget;
 	edict_t		*target_ent;
+
+	edict_t		*union_ent;			//union item
+	edict_t		*trainteam;			//train team
 
 	float		speed, accel, decel;
 	vec3_t		movedir;
@@ -1177,6 +1204,11 @@ struct edict_s
 	moveinfo_t		moveinfo;
 	monsterinfo_t	monsterinfo;
 
+//ponko
+	int			arena;				//arena
+// RAFAEL
+	int			orders;
+
 //WF
 	int lithium_flags;
 	int rune;
@@ -1232,3 +1264,21 @@ struct edict_s
 //WF
 #include "lithium.h"
 //WF
+
+#include "p_menu.h"
+
+// 3ZB2
+extern  cvar_t  *chedit;
+extern  cvar_t  *botlist;
+extern  cvar_t  *autospawn;
+extern  cvar_t  *gamepath;
+extern  cvar_t  *botpath;
+extern  float   spawncycle;
+
+#define GETTER		0
+#define	DEFENDER	1
+#define	SUPPORTER	2
+#define	CARRIER		3
+// 3ZB2
+
+#endif

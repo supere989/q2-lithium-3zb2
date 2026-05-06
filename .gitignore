@@ -1,0 +1,9 @@
+# Build artifacts
+*.o
+*.so
+lithium/
+
+# Editor / OS
+*.swp
+*~
+.DS_Store

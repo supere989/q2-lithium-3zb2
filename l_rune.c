@@ -397,9 +397,9 @@ qboolean Rune_Give(edict_t *ent, char *name) {
 	else if(!Q_stricmp(name, "vampire"))
 		ent->rune = RUNE_VAMPIRE;
 	else
-		return false;
+		return qfalse;
 
-	return true;
+	return qtrue;
 }
 
 void CTFSay_Team_Rune(edict_t *who, char *buf, unsigned int buflen) {

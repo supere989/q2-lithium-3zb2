@@ -1,5 +1,12 @@
-
 #include "g_local.h"
+#include "bot.h"
+
+void Bot_SpawnCall(void);
+void Bot_LevelChange(void);
+void SetBotFlag2(edict_t *ent);
+void SetBotFlag1(edict_t *ent);
+extern float spawncycle;
+extern int SpawnWaitingBots;
 
 game_locals_t	game;
 level_locals_t	level;
@@ -56,10 +63,21 @@ cvar_t	*flood_waitdelay;
 
 cvar_t	*sv_maplist;
 
+float	spawncycle;
+//ponko
+
+// 3ZB2
+cvar_t  *chedit;
+cvar_t  *botlist;
+cvar_t  *autospawn;
+cvar_t  *gamepath;
+cvar_t  *botpath;
+// 3ZB2
+
 void SpawnEntities (char *mapname, char *entities, char *spawnpoint);
 void ClientThink (edict_t *ent, usercmd_t *cmd);
 qboolean ClientConnect (edict_t *ent, char *userinfo);
-void ClientUserinfoChanged (edict_t *ent, char *userinfo);
+void ClientUserinfoChanged (edict_t *ent, char *userinfo, unsigned int uilen);
 void ClientDisconnect (edict_t *ent);
 void ClientBegin (edict_t *ent);
 void ClientCommand (edict_t *ent);
@@ -83,8 +101,12 @@ void ShutdownGame (void)
 	Lithium_Shutdown();
 	//WF
 
+//	Bot_LevelChange();
+
 	gi.FreeTags (TAG_LEVEL);
 	gi.FreeTags (TAG_GAME);
+	SetBotFlag1(NULL);
+	SetBotFlag2(NULL);
 }
 
 /*
@@ -275,7 +297,7 @@ void CheckNeedPass (void)
 	// as needed
 	if (password->modified || spectator_password->modified) 
 	{
-		password->modified = spectator_password->modified = false;
+		password->modified = spectator_password->modified = qfalse;
 
 		need = 0;
 
@@ -370,7 +392,11 @@ void ExitLevel (void)
 	level.intermissiontime = 0;
 	ClientEndServerFrames ();
 
-	// clear some things before going to next level
+	//PONKO
+	Bot_LevelChange();
+	//PONKO
+
+	// clear some things before routing to next level
 	for (i=0 ; i<maxclients->value ; i++)
 	{
 		ent = g_edicts + 1 + i;
@@ -419,6 +445,22 @@ void G_RunFrame (void)
 		return;
 	}
 
+//
+// Bot Spawning
+//
+	if(SpawnWaitingBots && !level.intermissiontime)
+	{
+		if(spawncycle < level.time)
+		{
+			Bot_SpawnCall();
+			spawncycle = level.time + FRAMETIME * 10 + 0.01 * SpawnWaitingBots;
+		}
+	}
+	else
+	{
+		if(spawncycle < level.time) spawncycle = level.time + FRAMETIME * 10;
+	}
+
 	//
 	// treat each object in turn
 	// even the world gets a chance to think
@@ -437,17 +479,18 @@ void G_RunFrame (void)
 		if ((ent->groundentity) && (ent->groundentity->linkcount != ent->groundentity_linkcount))
 		{
 			ent->groundentity = NULL;
-			//WF
-			/*
-			if ( !(ent->flags & (FL_SWIM|FL_FLY)) && (ent->svflags & SVF_MONSTER) )
+			// 3ZB2: bots ride client slots but are tagged SVF_MONSTER, so
+			// re-check their ground when their platform moves.
+			if (!(ent->flags & (FL_SWIM | FL_FLY)) && (ent->svflags & SVF_MONSTER))
 			{
 				M_CheckGround (ent);
 			}
-			*/
-			//WF
 		}
 
-		if (i > 0 && i <= maxclients->value)
+		// 3ZB2: client-slot edicts that are real players go through
+		// ClientBeginServerFrame; bots (SVF_MONSTER) fall through to
+		// G_RunEntity so their think() (= Bot_Think) actually runs.
+		if (i > 0 && i <= maxclients->value && !(ent->svflags & SVF_MONSTER))
 		{
 			ClientBeginServerFrame (ent);
 			continue;

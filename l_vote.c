@@ -34,15 +34,15 @@ lvar_t *mapvote_pass;
 lvar_t *mapvote_tries;
 lvar_t *mapvote_instant;
 
-qboolean voting = false;
+qboolean voting = qfalse;
 edict_t *vote_ent = NULL;
 edict_t *decide_ent = NULL;
 float vote_time;
 char vote_map[32];
 int vote_need, vote_pass;
 int vote_yes, vote_no;
-qboolean vote_cancel = false;
-qboolean vote_instant = false;
+qboolean vote_cancel = qfalse;
+qboolean vote_instant = qfalse;
 
 // all clients printf (excludes console)
 void acprintf(int level, char *format, ...) {
@@ -66,13 +66,13 @@ void acprintf(int level, char *format, ...) {
 
 qboolean Vote_IsPlaying(edict_t *ent) {
 	if(!ent->inuse)
-		return false;
+		return qfalse;
 	if(ent->lithium_flags & LITHIUM_OBSERVER)
-		return false;
+		return qfalse;
 	if(ent->client->chase_target != NULL)
-		return false;
+		return qfalse;
 
-	return true;
+	return qtrue;
 }
 
 int Vote_CountPlaying() {
@@ -104,25 +104,25 @@ extern qboolean admin_override;
 qboolean Vote_Allow(edict_t *ent) {
 	if(!use_mapvote->value) {
 		gi.cprintf(ent, PRINT_HIGH, "Map voting disabled on this server.\n");
-		return false;
+		return qfalse;
 	}
 
 	if(Vote_CountPlaying() < mapvote_min->value || Vote_CountPlaying() > mapvote_max->value) {
 		gi.cprintf(ent, PRINT_HIGH, "Map voting only allowed when %d to %d clients are playing.\n", (int)mapvote_min->value, (int)mapvote_max->value);
-		return false;
+		return qfalse;
 	}
 
 	if(ent->lclient->vote_tries >= mapvote_tries->value) {
 		gi.cprintf(ent, PRINT_HIGH, "Only allowed %d map vote tries (reset each map).\n", (int)mapvote_tries->value);
-		return false;
+		return qfalse;
 	}
 
 	if(admin_override) {
 		gi.cprintf(ent, PRINT_HIGH, "An admin has already set the next map.\n");
-		return false;
+		return qfalse;
 	}
 
-	return true;
+	return qtrue;
 }
 
 void Vote_Menu(edict_t *ent) {
@@ -164,9 +164,9 @@ void Vote_RunFrame(void) {
 	int i;
 	edict_t *cl_ent;
 	static int last_time;
-	qboolean stop = false;
-	qboolean pass = false;
-	qboolean timeup = false;
+	qboolean stop = qfalse;
+	qboolean pass = qfalse;
+	qboolean timeup = qfalse;
 
 	if(!voting) {
 		last_time = 0;
@@ -201,10 +201,10 @@ void Vote_RunFrame(void) {
 	pass = vote_yes + vote_no > vote_need && vote_yes > vote_pass;
 
 	if(mapvote_time->value - level.time + vote_time < 0)
-		timeup = true;
+		timeup = qtrue;
 
 	if(pass || vote_cancel || timeup || level.intermissiontime)
-		stop = true;
+		stop = qtrue;
 
 	for(i = 0; i < game.maxclients; i++) {
 		cl_ent = g_edicts + 1 + i;
@@ -242,9 +242,9 @@ void Vote_RunFrame(void) {
 			if(vote_instant)
 				end_time = level.time + 0.5;
 		}
-		voting = false;
+		voting = qfalse;
 		vote_ent = NULL;
-		vote_cancel = false;
+		vote_cancel = qfalse;
 	}
 }
 
@@ -252,7 +252,7 @@ void Vote_Start2(edict_t *ent) {
 	int i;
 	edict_t *cl_ent;
 
-	voting = true;
+	voting = qtrue;
 	vote_ent = ent;
 	vote_time = level.time;
 	strlcpy(vote_map, ent->lclient->vote_map, sizeof(vote_map));
@@ -295,7 +295,7 @@ void Vote_Start(edict_t *ent) {
 	strlcpy(ent->lclient->vote_map, gi.argv(2), sizeof(ent->lclient->vote_map));
 
 	if(!mapvote_instant->value) {
-		vote_instant = false;
+		vote_instant = qfalse;
 		Vote_Start2(ent);
 		return;
 	}
@@ -317,7 +317,7 @@ void Vote_Cmd(edict_t *ent, char *cmd1, char *cmd2) {
 
 	if(ent == vote_ent) {
 		if(!Q_stricmp(cmd1, "cancel"))
-			vote_cancel = true;
+			vote_cancel = qtrue;
 		if(!ent->menu)
 			Vote_Menu(ent);
 		return;
@@ -334,15 +334,15 @@ void Vote_Cmd(edict_t *ent, char *cmd1, char *cmd2) {
 	else if(!Q_stricmp(cmd1, "instant") && ent == decide_ent) {
 		if(!mapvote_instant) {
 			gi.cprintf(ent, PRINT_HIGH, "Instant map change disabled on this server.\n");
-			vote_instant = false;
+			vote_instant = qfalse;
 		}
 		else
-			vote_instant = true;
+			vote_instant = qtrue;
 		decide_ent = NULL;
 		Vote_Start2(ent);
 	}
 	else if(!Q_stricmp(cmd1, "mapover") && ent == decide_ent) {
-		vote_instant = false;
+		vote_instant = qfalse;
 		decide_ent = NULL;
 		Vote_Start2(ent);
 	}
@@ -359,6 +359,6 @@ qboolean Vote_ClientCommand(edict_t *ent) {
 	else if(!Q_stricmp(cmd, "no") && voting)
 		Vote_Cmd(ent, "no", "");
 	else
-		return false;
-	return true;
+		return qfalse;
+	return qtrue;
 }

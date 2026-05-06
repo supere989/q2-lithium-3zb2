@@ -39,7 +39,7 @@ qboolean M_CheckBottom (edict_t *ent)
 		}
 
 	c_yes++;
-	return true;		// we got out easy
+	return qtrue;		// we got out easy
 
 realcheck:
 	c_no++;
@@ -55,7 +55,7 @@ realcheck:
 	trace = gi.trace (start, vec3_origin, vec3_origin, stop, ent, MASK_MONSTERSOLID);
 
 	if (trace.fraction == 1.0)
-		return false;
+		return qfalse;
 	mid = bottom = trace.endpos[2];
 	
 // the corners must be within 16 of the midpoint	
@@ -70,11 +70,11 @@ realcheck:
 			if (trace.fraction != 1.0 && trace.endpos[2] > bottom)
 				bottom = trace.endpos[2];
 			if (trace.fraction == 1.0 || mid - trace.endpos[2] > STEPSIZE)
-				return false;
+				return qfalse;
 		}
 
 	c_yes++;
-	return true;
+	return qtrue;
 }
 
 
@@ -148,7 +148,7 @@ qboolean SV_movestep (edict_t *ent, vec3_t move, qboolean relink)
 					test[2] = trace.endpos[2] + ent->mins[2] + 1;
 					contents = gi.pointcontents(test);
 					if (contents & MASK_WATER)
-						return false;
+						return qfalse;
 				}
 			}
 
@@ -162,7 +162,7 @@ qboolean SV_movestep (edict_t *ent, vec3_t move, qboolean relink)
 					test[2] = trace.endpos[2] + ent->mins[2] + 1;
 					contents = gi.pointcontents(test);
 					if (!(contents & MASK_WATER))
-						return false;
+						return qfalse;
 				}
 			}
 
@@ -174,14 +174,14 @@ qboolean SV_movestep (edict_t *ent, vec3_t move, qboolean relink)
 					gi.linkentity (ent);
 					G_TouchTriggers (ent);
 				}
-				return true;
+				return qtrue;
 			}
 			
 			if (!ent->enemy)
 				break;
 		}
 		
-		return false;
+		return qfalse;
 	}
 
 // push down from a step height above the wished position
@@ -197,14 +197,14 @@ qboolean SV_movestep (edict_t *ent, vec3_t move, qboolean relink)
 	trace = gi.trace (neworg, ent->mins, ent->maxs, end, ent, MASK_MONSTERSOLID);
 
 	if (trace.allsolid)
-		return false;
+		return qfalse;
 
 	if (trace.startsolid)
 	{
 		neworg[2] -= stepsize;
 		trace = gi.trace (neworg, ent->mins, ent->maxs, end, ent, MASK_MONSTERSOLID);
 		if (trace.allsolid || trace.startsolid)
-			return false;
+			return qfalse;
 	}
 
 
@@ -217,7 +217,7 @@ qboolean SV_movestep (edict_t *ent, vec3_t move, qboolean relink)
 		contents = gi.pointcontents(test);
 
 		if (contents & MASK_WATER)
-			return false;
+			return qfalse;
 	}
 
 	if (trace.fraction == 1)
@@ -232,10 +232,10 @@ qboolean SV_movestep (edict_t *ent, vec3_t move, qboolean relink)
 				G_TouchTriggers (ent);
 			}
 			ent->groundentity = NULL;
-			return true;
+			return qtrue;
 		}
 	
-		return false;		// walked off an edge
+		return qfalse;		// walked off an edge
 	}
 
 // check point traces down for dangling corners
@@ -251,10 +251,10 @@ qboolean SV_movestep (edict_t *ent, vec3_t move, qboolean relink)
 				gi.linkentity (ent);
 				G_TouchTriggers (ent);
 			}
-			return true;
+			return qtrue;
 		}
 		VectorCopy (oldorg, ent->s.origin);
-		return false;
+		return qfalse;
 	}
 
 	if ( ent->flags & FL_PARTIALGROUND )
@@ -270,7 +270,7 @@ qboolean SV_movestep (edict_t *ent, vec3_t move, qboolean relink)
 		gi.linkentity (ent);
 		G_TouchTriggers (ent);
 	}
-	return true;
+	return qtrue;
 }
 
 
@@ -354,11 +354,11 @@ qboolean SV_StepDirection (edict_t *ent, float yaw, float dist)
 		}
 		gi.linkentity (ent);
 		G_TouchTriggers (ent);
-		return true;
+		return qtrue;
 	}
 	gi.linkentity (ent);
 	G_TouchTriggers (ent);
-	return false;
+	return qfalse;
 }
 
 /*
@@ -480,11 +480,11 @@ qboolean SV_CloseEnough (edict_t *ent, edict_t *goal, float dist)
 	for (i=0 ; i<3 ; i++)
 	{
 		if (goal->absmin[i] > ent->absmax[i] + dist)
-			return false;
+			return qfalse;
 		if (goal->absmax[i] < ent->absmin[i] - dist)
-			return false;
+			return qfalse;
 	}
-	return true;
+	return qtrue;
 }
 
 
@@ -525,7 +525,7 @@ qboolean M_walkmove (edict_t *ent, float yaw, float dist)
 	vec3_t	move;
 	
 	if (!ent->groundentity && !(ent->flags & (FL_FLY|FL_SWIM)))
-		return false;
+		return qfalse;
 
 	yaw = yaw*M_PI*2 / 360;
 	
