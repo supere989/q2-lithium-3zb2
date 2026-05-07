@@ -1219,4 +1219,18 @@ void BotEndServerFrame (edict_t *ent)
 
 	VectorClear (ent->client->kick_origin);
 	VectorClear (ent->client->kick_angles);
+
+	/* q2-ml-bot: refresh chase camera for any spectator following this bot.
+	 * ClientEndServerFrame does this for real players; bots only run
+	 * BotEndServerFrame, so without this hook a spectator's chase cam
+	 * stays frozen at the position the bot had when the chase began. */
+	{
+		int i;
+		edict_t *other;
+		for (i = 1; i <= maxclients->value; i++) {
+			other = g_edicts + i;
+			if (other->inuse && other->client && other->client->chase_target == ent)
+				UpdateChaseCam(other);
+		}
+	}
 }
