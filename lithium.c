@@ -1356,11 +1356,15 @@ void Lithium_CalcPlaces(void) {
 
 		score = -999;
 
-		if(ent->lithium_flags & LITHIUM_PLAYING) {
+		/* q2-ml-bot: treat SVF_MONSTER bots as "playing" for ranking/chase
+		 * accounting so spectators can ChaseFind them.  Team/score-team
+		 * accounting stays gated on the original LITHIUM_PLAYING because
+		 * bots may not carry a CTF team assignment. */
+		if(ent->lithium_flags & LITHIUM_PLAYING || ent->svflags & SVF_MONSTER) {
 			score = ent->client->resp.score;
 			players++;
 
-			if(ctf->value) {
+			if(ctf->value && (ent->lithium_flags & LITHIUM_PLAYING)) {
 				if(ent->client->resp.ctf_team == CTF_TEAM1) {
 					team1++;
 					score1 += score;
@@ -1407,14 +1411,15 @@ void Lithium_CalcPlaces(void) {
 
 	for(i = 0; i < total; i++) {
 		ent = g_edicts + 1 + sorted[i];
-		if(ent->lithium_flags & LITHIUM_PLAYING)
+		/* q2-ml-bot: bots also get a place so ChaseFind can target them */
+		if((ent->lithium_flags & LITHIUM_PLAYING) || (ent->svflags & SVF_MONSTER))
 			ent->place = i + 1;
 		else
 			ent->place = 0;
 		sorted_ent[i] = ent;
 
 		ent = g_edicts + 1 + fph_sorted[i];
-		if(ent->lithium_flags & LITHIUM_PLAYING)
+		if((ent->lithium_flags & LITHIUM_PLAYING) || (ent->svflags & SVF_MONSTER))
 			ent->fph_place = i + 1;
 		else
 			ent->fph_place = 0;
@@ -1482,7 +1487,9 @@ qboolean ChaseFind(edict_t *ent, int place, int searchdir) {
 	while(qtrue) {
 		for(i = 0; i < game.maxclients; i++) {
 			e = g_edicts + 1 + i;
-			if(e->inuse && (!place || e->place == place) && e != ent && e->lithium_flags & LITHIUM_PLAYING) {
+			/* q2-ml-bot: SVF_MONSTER bots are valid chase targets too */
+			if(e->inuse && (!place || e->place == place) && e != ent
+			   && ((e->lithium_flags & LITHIUM_PLAYING) || (e->svflags & SVF_MONSTER))) {
 				ChaseSet(ent, e);
 				return qtrue;
 			}
