@@ -74,6 +74,10 @@ cvar_t  *gamepath;
 cvar_t  *botpath;
 // 3ZB2
 
+// q2-ml-bot bridge
+cvar_t  *ml_enabled;
+cvar_t  *ml_bot_slot;
+
 void SpawnEntities (char *mapname, char *entities, char *spawnpoint);
 void ClientThink (edict_t *ent, usercmd_t *cmd);
 qboolean ClientConnect (edict_t *ent, char *userinfo);

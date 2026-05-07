@@ -1275,6 +1275,10 @@ extern  cvar_t  *gamepath;
 extern  cvar_t  *botpath;
 extern  float   spawncycle;
 
+// q2-ml-bot
+extern  cvar_t  *ml_enabled;
+extern  cvar_t  *ml_bot_slot;
+
 #define GETTER		0
 #define	DEFENDER	1
 #define	SUPPORTER	2

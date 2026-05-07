@@ -609,10 +609,25 @@ void T_Damage (edict_t *targ, edict_t *inflictor, edict_t *attacker, vec3_t dir,
 		Rune_TDamage(targ, attacker, take);
 		//WF
 
+		/* q2-ml-bot: accumulate damage reward signals for ML-controlled bots */
+		if (attacker && attacker->client && attacker->client->zc.ml_enabled
+		    && attacker != targ)
+		{
+			attacker->client->zc.ml_reward_damage_dealt += (float)take;
+		}
+		if (targ->client && targ->client->zc.ml_enabled)
+		{
+			targ->client->zc.ml_reward_damage_taken += (float)take;
+		}
+
 		if (targ->health <= 0)
 		{
 			if ((targ->svflags & SVF_MONSTER) || (client))
 				targ->flags |= FL_NO_KNOCKBACK;
+			/* kill credit for ML attacker */
+			if (attacker && attacker->client && attacker->client->zc.ml_enabled
+			    && attacker != targ)
+				attacker->client->zc.ml_reward_kill += 1.0f;
 			Killed (targ, inflictor, attacker, take, point);
 			return;
 		}

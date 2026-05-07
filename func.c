@@ -1,5 +1,7 @@
 #include "bot.h"
 #include "m_player.h"
+#include "ml_bridge.h"
+#include "ml_obs.h"
 
 
 qboolean Get_YenPos(char *Buff,int *curr)
@@ -305,11 +307,23 @@ void Bot_Think (edict_t *self)
 		{
 			if(self->svflags & SVF_MONSTER)
 			{
+				self->client->zc.ml_reward_death += 1.0f;
 				self->client->respawn_time = level.time;
 				CopyToBodyQue (self);
 				PutBotInServer(self);
-			}		
+			}
 		}
+	}
+	else if(self->client->zc.ml_enabled)
+	{
+		/* ── ML-controlled bot — UDP bridge to Python policy ── */
+		ml_obs_t    obs;
+		ml_action_t act;
+		int slot = (int)(self - g_edicts - 1);
+		ML_PackObs(self, &obs);
+		ML_BotStep(slot, &obs, &act, 80);
+		ML_ApplyAction(self, &act);
+		if(!self->inuse) return;
 	}
 	else
 	{
@@ -378,6 +392,19 @@ void InitializeBot (edict_t *ent,int botindex )
 
 	ent->client->pers.connected = qfalse;
 	gi.dprintf ("%s connected\n", ent->client->pers.netname);
+
+	/* q2-ml-bot: tag bots whose slot is at/above ml_bot_slot as ML-controlled */
+	if(ml_enabled && ml_enabled->value)
+	{
+		int slot = (int)(ent - g_edicts - 1);
+		if(slot >= (int)ml_bot_slot->value)
+		{
+			ent->client->zc.ml_enabled = 1;
+			ML_BotInit(slot);
+			gi.dprintf ("ML: %s on slot %d → bridge active\n",
+				ent->client->pers.netname, slot);
+		}
+	}
 //	gi.bprintf (PRINT_HIGH, "%s entered the game\n", ent->client->pers.netname);
 
 	if(ctf->value)	gi.bprintf(PRINT_HIGH, "%s joined the %s team.\n",
@@ -425,9 +452,15 @@ void PutBotInServer (edict_t *ent)
 
 	j = zc->botindex;
 	i = zc->routeindex;
-	memset (&client->zc,0,sizeof(zgcl_t));
-	zc->botindex = j;
-	zc->routeindex = i;
+	{
+		int saved_ml = zc->ml_enabled;
+		int saved_sock = zc->ml_socket;
+		memset (&client->zc,0,sizeof(zgcl_t));
+		zc->botindex = j;
+		zc->routeindex = i;
+		zc->ml_enabled = saved_ml;
+		zc->ml_socket  = saved_sock;
+	}
 
 //ZOID
 	client->ctf_grapple = NULL;
@@ -766,6 +799,11 @@ qboolean RemoveBot()
 				
 				gi.linkentity (e);
 
+				if(e->client->zc.ml_enabled)
+				{
+					ML_BotShutdown((int)(e - g_edicts - 1));
+					e->client->zc.ml_enabled = 0;
+				}
 				e->inuse = qfalse;
 				G_FreeEdict (e);
 

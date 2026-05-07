@@ -94,6 +94,25 @@ typedef struct zgcl_s
 	short		ctfstate;		//ctf state
 	edict_t		*followmate;	//follow
 	float		matelock;		//team mate locking time
+
+	/* ML bridge — per-tick reward accumulators, cleared after each obs send */
+	int			ml_enabled;		/* non-zero when this bot is ML-controlled */
+	int			ml_socket;		/* UDP fd (-1 if inactive) */
+	float		ml_reward_damage_dealt;
+	float		ml_reward_damage_taken;
+	float		ml_reward_kill;
+	float		ml_reward_death;
+	float		ml_reward_item;
+	float		ml_reward_hook;
+	/* cached last action for sub-tick application */
+	float		ml_move_forward;
+	float		ml_move_right;
+	float		ml_look_yaw;
+	float		ml_look_pitch;
+	int			ml_jump;
+	int			ml_fire;
+	int			ml_hook;		/* 0=idle 1=fire 2=hold 3=release */
+	int			ml_weapon;
 } zgcl_t;
 
 #endif

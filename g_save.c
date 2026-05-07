@@ -232,6 +232,11 @@ void InitGame (void)
 	botpath = gi.cvar ("botpath", "3zb2", CVAR_NOSET);
 	// 3ZB2
 
+	// q2-ml-bot bridge — when ml_enabled=1, bots in slots >= ml_bot_slot
+	// route Bot_Think through the UDP bridge instead of the 3ZB2 state machine.
+	ml_enabled  = gi.cvar ("ml_enabled",  "0", CVAR_LATCH);
+	ml_bot_slot = gi.cvar ("ml_bot_slot", "1", CVAR_LATCH);
+
 	// items
 	InitItems ();
 
