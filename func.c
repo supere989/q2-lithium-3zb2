@@ -285,6 +285,31 @@ edict_t *Get_NewClient (void)
 //----------------------------------------------------------------
 void Bot_Think (edict_t *self)
 {
+	int self_idx;
+
+	/* Guard against Bot_Think being invoked on a non-client edict.  The
+	 * function unconditionally dereferences self->client throughout, so
+	 * if think=Bot_Think ended up on a non-bot edict (e.g. via a body-queue
+	 * copy or stale think pointer), we'd crash deep inside this function
+	 * with corrupted register state.  Bail out cleanly instead. */
+	if (!self || self < g_edicts || self >= &g_edicts[globals.num_edicts]) {
+		gi.dprintf("Bot_Think: invalid self pointer %p — skipping\n", self);
+		return;
+	}
+	self_idx = self - g_edicts;
+	if (self_idx < 1 || self_idx > (int)maxclients->value) {
+		gi.dprintf("Bot_Think: edict #%d is outside client range — clearing think\n", self_idx);
+		self->think     = NULL;
+		self->nextthink = 0;
+		return;
+	}
+	if (!self->client) {
+		gi.dprintf("Bot_Think: edict #%d has NULL client — clearing think\n", self_idx);
+		self->think     = NULL;
+		self->nextthink = 0;
+		return;
+	}
+
 	if (self->linkcount != self->monsterinfo.linkcount)
 	{
 //		self->monsterinfo.linkcount = self->linkcount;
