@@ -1278,6 +1278,7 @@ extern  float   spawncycle;
 // q2-ml-bot
 extern  cvar_t  *ml_enabled;
 extern  cvar_t  *ml_bot_slot;
+extern  cvar_t  *ml_step_timeout;
 
 #define GETTER		0
 #define	DEFENDER	1

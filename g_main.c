@@ -77,6 +77,7 @@ cvar_t  *botpath;
 // q2-ml-bot bridge
 cvar_t  *ml_enabled;
 cvar_t  *ml_bot_slot;
+cvar_t  *ml_step_timeout;
 
 void SpawnEntities (char *mapname, char *entities, char *spawnpoint);
 void ClientThink (edict_t *ent, usercmd_t *cmd);
