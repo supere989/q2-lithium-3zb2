@@ -329,11 +329,25 @@ void Bot_Think (edict_t *self)
 //ZOID
 
 		self->client->zc.route_trace = qfalse;
+
+		/* q2-ml-bot: dead bots never reach the ML branch below, so the
+		   terminal death obs (is_terminal=1, ML_TERMINAL_DEATH) must be
+		   sent from here. Fire-and-forget, once per death; the flag is
+		   cleared by the zgcl_t memset in PutBotInServer. The death
+		   reward itself is accumulated in player_die (p_client.c). */
+		if (self->client->zc.ml_enabled && !self->client->zc.ml_death_obs_sent)
+		{
+			ml_obs_t obs;
+			int slot = (int)(self - g_edicts - 1);
+			ML_PackObs(self, &obs);
+			ML_SendObsOnly(slot, &obs);
+			self->client->zc.ml_death_obs_sent = 1;
+		}
+
 		if(self->client->respawn_time <= level.time)
 		{
 			if(self->svflags & SVF_MONSTER)
 			{
-				self->client->zc.ml_reward_death += 1.0f;
 				self->client->respawn_time = level.time;
 				CopyToBodyQue (self);
 				PutBotInServer(self);

@@ -115,6 +115,7 @@ typedef struct zgcl_s
 	int			ml_weapon;
 	int			ml_last_action_tick;
 	int			ml_last_action_ok;
+	int			ml_death_obs_sent;	/* terminal death obs sent once per death; cleared by respawn memset */
 	int			ml_timeout_count;
 } zgcl_t;
 

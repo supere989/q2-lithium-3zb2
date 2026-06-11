@@ -182,6 +182,11 @@ int  ML_BotInit(int bot_slot);
 int  ML_BotStep(int bot_slot, const ml_obs_t *obs, ml_action_t *act,
                 int timeout_ms);
 
+/* Fire-and-forget obs send with no action wait. Used for terminal packets
+   (death) where the harness will not reply; never blocks the server frame.
+   Returns 0 on send, -1 on error. */
+int  ML_SendObsOnly(int bot_slot, const ml_obs_t *obs);
+
 /* Call on bot removal. Closes socket. */
 void ML_BotShutdown(int bot_slot);
 

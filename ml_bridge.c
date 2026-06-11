@@ -143,6 +143,26 @@ int ML_BotStep(int bot_slot, const ml_obs_t *obs, ml_action_t *act,
 }
 
 
+int ML_SendObsOnly(int bot_slot, const ml_obs_t *obs) {
+    if (bot_slot < 0 || bot_slot >= MAX_BOTS_ML) return -1;
+    ml_bot_sock_t *s = &g_socks[bot_slot];
+    if (s->fd < 0) return -1;
+
+    /* drain any stale queued actions so the socket buffer stays clean */
+    while (1) {
+        ml_action_t incoming;
+        ssize_t n = recv(s->fd, &incoming, sizeof(incoming), MSG_DONTWAIT);
+        if (n >= 0) continue;               /* discard stale packet, keep draining */
+        if (errno == EINTR) continue;
+        break;                              /* EAGAIN/EWOULDBLOCK or real error */
+    }
+
+    ssize_t sent = sendto(s->fd, obs, sizeof(*obs), 0,
+                          (struct sockaddr *)&s->harness_addr,
+                          sizeof(s->harness_addr));
+    return (sent == sizeof(*obs)) ? 0 : -1;
+}
+
 void ML_BotShutdown(int bot_slot) {
     if (bot_slot < 0 || bot_slot >= MAX_BOTS_ML) return;
     ml_bot_sock_t *s = &g_socks[bot_slot];
