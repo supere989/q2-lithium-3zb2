@@ -1,3 +1,4 @@
+#include <stdbool.h>
 #include "bot.h"
 #include "m_player.h"
 #include "ml_bridge.h"
@@ -350,6 +351,9 @@ void Bot_Think (edict_t *self)
 		ML_BotStep(slot, &obs, &act, timeout_ms);
 		ML_ApplyAction(self, &act);
 		if(!self->inuse) return;
+
+		ClientBeginServerFrame (self);
+		if(!self->inuse) return;
 	}
 	else
 	{
@@ -439,6 +443,45 @@ void InitializeBot (edict_t *ent,int botindex )
 			client->pers.netname);
 }
 
+static void ML_GiveTrainingLoadout(edict_t *ent)
+{
+	gclient_t *client;
+
+	if (!ent || !ent->client)
+		return;
+
+	client = ent->client;
+
+	if (Fdi_SHOTGUN)
+		client->pers.inventory[ITEM_INDEX(Fdi_SHOTGUN)] = 1;
+	if (Fdi_SUPERSHOTGUN)
+		client->pers.inventory[ITEM_INDEX(Fdi_SUPERSHOTGUN)] = 1;
+	if (Fdi_MACHINEGUN)
+		client->pers.inventory[ITEM_INDEX(Fdi_MACHINEGUN)] = 1;
+	if (Fdi_CHAINGUN)
+		client->pers.inventory[ITEM_INDEX(Fdi_CHAINGUN)] = 1;
+	if (Fdi_ROCKETLAUNCHER)
+		client->pers.inventory[ITEM_INDEX(Fdi_ROCKETLAUNCHER)] = 1;
+	if (Fdi_RAILGUN)
+		client->pers.inventory[ITEM_INDEX(Fdi_RAILGUN)] = 1;
+
+	if (Fdi_SHELLS)
+		client->pers.inventory[ITEM_INDEX(Fdi_SHELLS)] = 50;
+	if (Fdi_BULLETS)
+		client->pers.inventory[ITEM_INDEX(Fdi_BULLETS)] = 200;
+	if (Fdi_ROCKETS)
+		client->pers.inventory[ITEM_INDEX(Fdi_ROCKETS)] = 50;
+	if (Fdi_SLUGS)
+		client->pers.inventory[ITEM_INDEX(Fdi_SLUGS)] = 50;
+
+	if (Fdi_ROCKETLAUNCHER)
+	{
+		client->pers.weapon = Fdi_ROCKETLAUNCHER;
+		client->pers.selected_item = ITEM_INDEX(Fdi_ROCKETLAUNCHER);
+		client->newweapon = NULL;
+	}
+}
+
 void PutBotInServer (edict_t *ent)
 {
 	edict_t		*touch[MAX_EDICTS];
@@ -487,6 +530,9 @@ void PutBotInServer (edict_t *ent)
 		zc->ml_enabled = saved_ml;
 		zc->ml_socket  = saved_sock;
 	}
+
+	if (zc->ml_enabled)
+		ML_GiveTrainingLoadout(ent);
 
 //ZOID
 	client->ctf_grapple = NULL;
@@ -1145,4 +1191,3 @@ void Cmd_AirStrike(edict_t *ent)
 	viper->s.origin[2] += 16;
 	gi.linkentity (viper);
 }
-

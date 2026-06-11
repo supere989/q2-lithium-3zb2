@@ -1,3 +1,4 @@
+#include <stdbool.h>
 /*============================================================================
 
     This file is part of Lithium II Mod for Quake II

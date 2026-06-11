@@ -1,3 +1,4 @@
+#include <stdbool.h>
 #include "q_shared.h"
 
 #define DEG2RAD( a ) ( a * M_PI ) / 180.0F

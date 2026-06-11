@@ -77,7 +77,7 @@ GAME_OBJS = \
 	l_var.o l_menu.o l_admin.o l_vote.o l_net.o net.o \
 	g_ctf.o l_hscore.o zbotcheck.o strl.o \
 	bot.o fire.o func.o za.o \
-	ml_bridge.o ml_obs.o
+	ml_bridge.o ml_sensors.o ml_obs.o
 
 lithium/game$(ARCH).$(SHLIBEXT): $(GAME_OBJS)
 	$(CC) $(CFLAGS) $(SHLIBLDFLAGS) -o $@ $(GAME_OBJS) $(LDFLAGS)

@@ -1,3 +1,4 @@
+#include <stdbool.h>
 // g_utils.c -- misc utility functions for game module
 
 #include "g_local.h"

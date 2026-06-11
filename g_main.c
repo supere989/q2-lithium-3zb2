@@ -77,7 +77,10 @@ cvar_t  *botpath;
 // q2-ml-bot bridge
 cvar_t  *ml_enabled;
 cvar_t  *ml_bot_slot;
+cvar_t  *ml_port_base;
 cvar_t  *ml_step_timeout;
+cvar_t  *ml_spectators_only;
+static cvar_t *g_out_of_bounds_kill_z;
 
 void SpawnEntities (char *mapname, char *entities, char *spawnpoint);
 void ClientThink (edict_t *ent, usercmd_t *cmd);
@@ -96,6 +99,28 @@ void G_RunFrame (void);
 
 
 //===================================================================
+
+static qboolean G_CheckOutOfBoundsKill(edict_t *ent)
+{
+	if (!ent->client || ent->deadflag || ent->health <= 0)
+		return qfalse;
+
+	if (!ent->client->zc.ml_enabled)
+		return qfalse;
+
+	if (ent->client->pers.spectator || ent->client->resp.spectator)
+		return qfalse;
+
+	if (!g_out_of_bounds_kill_z)
+		g_out_of_bounds_kill_z = gi.cvar("g_out_of_bounds_kill_z", "-4096", 0);
+
+	if (!g_out_of_bounds_kill_z || ent->s.origin[2] >= g_out_of_bounds_kill_z->value)
+		return qfalse;
+
+	T_Damage(ent, world, world, vec3_origin, ent->s.origin, vec3_origin,
+		100000, 0, DAMAGE_NO_PROTECTION, MOD_FALLING);
+	return qtrue;
+}
 
 
 void ShutdownGame (void)
@@ -492,6 +517,9 @@ void G_RunFrame (void)
 			}
 		}
 
+		if (G_CheckOutOfBoundsKill(ent))
+			continue;
+
 		// 3ZB2: client-slot edicts that are real players go through
 		// ClientBeginServerFrame; bots (SVF_MONSTER) fall through to
 		// G_RunEntity so their think() (= Bot_Think) actually runs.
@@ -502,6 +530,7 @@ void G_RunFrame (void)
 		}
 
 		G_RunEntity (ent);
+		G_CheckOutOfBoundsKill(ent);
 	}
 
 	//WF
@@ -517,4 +546,3 @@ void G_RunFrame (void)
 	// build the playerstate_t structures for all players
 	ClientEndServerFrames ();
 }
-

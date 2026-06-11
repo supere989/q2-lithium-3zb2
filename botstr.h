@@ -113,6 +113,9 @@ typedef struct zgcl_s
 	int			ml_fire;
 	int			ml_hook;		/* 0=idle 1=fire 2=hold 3=release */
 	int			ml_weapon;
+	int			ml_last_action_tick;
+	int			ml_last_action_ok;
+	int			ml_timeout_count;
 } zgcl_t;
 
 #endif

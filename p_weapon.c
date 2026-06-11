@@ -1,3 +1,4 @@
+#include <stdbool.h>
 // g_weapon.c
 
 #include "g_local.h"

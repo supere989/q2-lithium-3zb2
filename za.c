@@ -1,3 +1,4 @@
+#include <stdbool.h>
 #include "bot.h"
 #include "q_shared.h"
 #include "m_player.h"

@@ -1,3 +1,4 @@
+#include <stdbool.h>
 #include "g_local.h"
 
 void PMenu_Open(edict_t *ent, pmenu_t *entries, int cur, int num)

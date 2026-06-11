@@ -236,6 +236,8 @@ void InitGame (void)
 	// route Bot_Think through the UDP bridge instead of the 3ZB2 state machine.
 	ml_enabled  = gi.cvar ("ml_enabled",  "0", CVAR_LATCH);
 	ml_bot_slot = gi.cvar ("ml_bot_slot", "1", CVAR_LATCH);
+	ml_port_base = gi.cvar ("ml_port_base", "27950", CVAR_LATCH);
+	ml_spectators_only = gi.cvar ("ml_spectators_only", "0", 0);
 	/* recv timeout in ms for the Python action reply.  Default 80 (8x server tick).
 	   For sv_timedemo training, drop to 5-10 so a slow Python doesn't bottleneck. */
 	ml_step_timeout = gi.cvar ("ml_step_timeout", "80", 0);

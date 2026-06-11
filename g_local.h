@@ -509,6 +509,11 @@ extern	int	body_armor_index;
 //ZOID
 #define MOD_FRIENDLY_FIRE	0x8000000
 
+/* Marker written by the procedural map generator for hidden out-of-bounds
+   hook catch surfaces. Keep this in sync with maps/generator.py. */
+#define ML_KILL_PLANE_SURFACE_VALUE 31337
+#define ML_KILL_PLANE_DAMAGE 100000
+
 extern	int	meansOfDeath;
 
 
@@ -556,6 +561,7 @@ extern	cvar_t	*bob_roll;
 extern	cvar_t	*sv_cheats;
 extern	cvar_t	*maxclients;
 extern	cvar_t	*maxspectators;
+extern	cvar_t	*ml_spectators_only;
 
 extern	cvar_t	*flood_msgs;
 extern	cvar_t	*flood_persecond;
@@ -994,6 +1000,7 @@ struct gclient_s
 
 	qboolean	grenade_blew_up;
 	float		grenade_time;
+	float		rocket_haste_refire_time;
 	int			silencer_shots;
 	int			weapon_sound;
 
@@ -1278,6 +1285,7 @@ extern  float   spawncycle;
 // q2-ml-bot
 extern  cvar_t  *ml_enabled;
 extern  cvar_t  *ml_bot_slot;
+extern  cvar_t  *ml_port_base;
 extern  cvar_t  *ml_step_timeout;
 
 #define GETTER		0

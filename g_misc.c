@@ -1,3 +1,4 @@
+#include <stdbool.h>
 // g_misc.c
 
 #include "g_local.h"

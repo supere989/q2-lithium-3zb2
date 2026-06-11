@@ -1,3 +1,4 @@
+#include <stdbool.h>
 #include "g_local.h"
 
 /*QUAKED target_temp_entity (1 0 0) (-8 -8 -8) (8 8 8)

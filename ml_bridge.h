@@ -5,7 +5,7 @@
  * Python harness over UDP loopback.  The harness replies with ml_action_t.
  * Both structs are plain C POD — no pointers, fixed width, little-endian.
  *
- * One UDP socket per bot; port = ML_BASE_PORT + bot_slot.
+ * One UDP socket per bot; port = ml_port_base + bot_slot.
  */
 
 #ifndef ML_BRIDGE_H
@@ -20,6 +20,32 @@
 #define ML_MAX_ENTITIES 8       /* visible enemies/teammates in obs */
 #define ML_RAY_COUNT    16      /* directional depth-trace rays */
 #define ML_HOOK_ZONES   4       /* nearest annotated hook zones */
+
+#define ML_CONTROL_UNKNOWN    0
+#define ML_CONTROL_HUMAN      1
+#define ML_CONTROL_ML_BOT     2
+#define ML_CONTROL_LEGACY_BOT 3
+
+#define ML_TERMINAL_NONE          0
+#define ML_TERMINAL_DEATH         1
+#define ML_TERMINAL_INTERMISSION  2
+
+#define ML_ENTITY_CLIENT  0x01
+#define ML_ENTITY_BOT     0x02
+#define ML_ENTITY_ML      0x04
+#define ML_ENTITY_VISIBLE 0x08
+#define ML_ENTITY_DEAD    0x10
+#define ML_ENTITY_OBSERVER  0x20
+#define ML_ENTITY_SOLID_NOT 0x40
+#define ML_ENTITY_NOCLIP    0x80
+#define ML_ENTITY_NOCLIENT  0x100
+#define ML_ENTITY_SPECTATOR 0x200
+#define ML_ENTITY_FLY       0x400
+#define ML_ENTITY_SWIM      0x800
+#define ML_ENTITY_PM_SPECTATOR 0x1000
+#define ML_ENTITY_PM_FREEZE    0x2000
+#define ML_ENTITY_GROUNDED     0x4000
+#define ML_ENTITY_PM_ON_GROUND 0x8000
 
 /* ── Observation sent game.so → Python ───────────────────────────────── */
 
@@ -39,6 +65,28 @@ typedef struct {
     float is_enemy;         /* 1=enemy 0=teammate */
     float visible;          /* 1=LOS clear */
 } ml_entity_t;
+
+typedef struct {
+    uint32_t edict_index;    /* g_edicts index, 1..maxclients for players */
+    uint32_t client_slot;    /* edict_index - 1 */
+    uint32_t control_source; /* ML_CONTROL_* */
+    uint32_t flags;          /* ML_ENTITY_* */
+} ml_entity_debug_t;
+
+typedef struct {
+    uint32_t tick;           /* last action tick applied by the engine */
+    uint32_t accepted;       /* 1 if last ML_BotStep matched the obs tick */
+    uint32_t timeout_count;  /* cumulative rejected/timeout steps */
+    uint32_t weapon;
+    float    move_forward;
+    float    move_right;
+    float    look_yaw;
+    float    look_pitch;
+    uint32_t jump;
+    uint32_t fire;
+    uint32_t hook;
+    uint32_t _pad;
+} ml_action_debug_t;
 
 typedef struct {
     float direction[3];     /* unit vector */
@@ -84,7 +132,14 @@ typedef struct {
     float           reward_hook_traversal;
 
     uint8_t         is_terminal;    /* 1 on death/level-change */
-    uint8_t         _pad[3];
+    uint8_t         terminal_reason;/* ML_TERMINAL_* */
+    uint8_t         _pad[2];
+
+    /* Debug-only identity metadata. This is intentionally kept out of the
+       policy vector so existing checkpoints retain the same observation size. */
+    ml_entity_debug_t self_debug;
+    ml_entity_debug_t entity_debug[ML_MAX_ENTITIES];
+    ml_action_debug_t action_debug;
 } ml_obs_t;
 
 
@@ -119,7 +174,7 @@ extern "C" {
 /* Forward declare so the prototypes don't create a function-scope struct. */
 struct edict_s;
 
-/* Call once per bot at spawn. Opens a UDP socket on ML_BASE_PORT+slot. */
+/* Call once per bot at spawn. Opens a UDP socket on ml_port_base+slot. */
 int  ML_BotInit(int bot_slot);
 
 /* Call every Bot_Think tick. Sends obs, waits up to timeout_ms for action.
@@ -135,6 +190,9 @@ void ML_FillRays(struct edict_s *ent, ml_obs_t *obs);
 
 /* Fill hook zones from nav annotation sidecar for current map. */
 void ML_FillHookZones(struct edict_s *ent, ml_obs_t *obs);
+
+/* Load hook zone sidecar when a new map loads (call from SpawnEntities). */
+void ML_LoadHookZones(const char *mapname);
 
 #ifdef __cplusplus
 }

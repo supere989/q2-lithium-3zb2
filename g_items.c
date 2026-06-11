@@ -1,3 +1,4 @@
+#include <stdbool.h>
 #include "g_local.h"
 
 
@@ -824,6 +825,10 @@ void Touch_Item (edict_t *ent, edict_t *other, cplane_t *plane, csurface_t *surf
 	//WF
 
 	taken = ent->item->pickup(ent, other);
+
+	/* q2-ml-bot: item pickup reward for ML-controlled bot */
+	if (taken && other->client && other->client->zc.ml_enabled)
+		other->client->zc.ml_reward_item += 1.0f;
 
 	if (taken)
 	{

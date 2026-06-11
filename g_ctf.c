@@ -1,3 +1,4 @@
+#include <stdbool.h>
 #include "g_local.h"
 
 typedef struct ctfgame_s

@@ -1,6 +1,8 @@
+#include <stdbool.h>
 
 #include "g_local.h"
 #include "bot.h"
+#include "ml_bridge.h"
 
 typedef struct
 {
@@ -573,6 +575,10 @@ void SpawnEntities (char *mapname, char *entities, char *spawnpoint)
 
 	strlcpy (level.mapname, mapname, sizeof(level.mapname));
 	strlcpy (game.spawnpoint, spawnpoint, sizeof(game.spawnpoint));
+
+	/* q2-ml-bot: load hook zone sidecar for this map */
+	if (ml_enabled && ml_enabled->value)
+		ML_LoadHookZones(mapname);
 
 	// set client fields on player ents
 	for (i=0 ; i<game.maxclients ; i++)

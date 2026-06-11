@@ -1,3 +1,4 @@
+#include <stdbool.h>
 #include "g_local.h"
 #include "m_player.h"
 #include "bot.h"
@@ -521,6 +522,10 @@ void player_die (edict_t *self, edict_t *inflictor, edict_t *attacker, int damag
 
 	if (!self->deadflag)
 	{
+		/* q2-ml-bot: death penalty for ML-controlled bot */
+		if (self->client && self->client->zc.ml_enabled)
+			self->client->zc.ml_reward_death += 1.0f;
+
 		if(self->svflags & SVF_MONSTER)
 		{
 			LookAtKiller (self, inflictor, attacker);

@@ -1,3 +1,4 @@
+#include <stdbool.h>
 // g_phys.c
 
 #include "g_local.h"

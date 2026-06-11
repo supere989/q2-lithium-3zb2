@@ -1,3 +1,4 @@
+#include <stdbool.h>
 /*
  * ml_obs.c — pack ml_obs_t from current game state, apply ml_action_t.
  *
@@ -9,11 +10,257 @@
 #include "g_local.h"
 #include "bot.h"
 #include "ml_bridge.h"
-#include <string.h>
+#include "ml_sensors.h"
 #include <math.h>
+#include <string.h>
 
 /* Lithium server framenum source */
 extern int sm_framenum;
+extern lvar_t *use_hook;
+void Use_Weapon(edict_t *ent, gitem_t *item);
+void Weapon_Hook_Fire(edict_t *ent);
+void Hook_Reset(edict_t *rhook);
+void Hook_Service(edict_t *self);
+
+#define ML_STUCK_MAX_SLOTS 32
+#define ML_STUCK_NUDGE_TICKS 12
+#define ML_STUCK_RESPAWN_TICKS 32
+
+static vec3_t ml_last_origin[ML_STUCK_MAX_SLOTS];
+static int ml_last_origin_valid[ML_STUCK_MAX_SLOTS];
+static int ml_stuck_ticks[ML_STUCK_MAX_SLOTS];
+
+static qboolean ML_OriginBlockedByClient(edict_t *ent, vec3_t origin)
+{
+	edict_t *touch[MAX_EDICTS];
+	vec3_t absmin, absmax;
+	int i, count;
+
+	VectorAdd(origin, ent->mins, absmin);
+	VectorAdd(origin, ent->maxs, absmax);
+
+	count = gi.BoxEdicts(absmin, absmax, touch, MAX_EDICTS, AREA_SOLID);
+	for (i = 0; i < count; i++) {
+		if (!touch[i] || touch[i] == ent || !touch[i]->inuse || !touch[i]->client)
+			continue;
+		if (touch[i]->solid == SOLID_NOT || touch[i]->health <= 0)
+			continue;
+		return qtrue;
+	}
+
+	return qfalse;
+}
+
+static qboolean ML_TryLateralUnstick(edict_t *ent)
+{
+	static const float radii[] = {48.0f, 96.0f, 144.0f};
+	vec3_t start, candidate, drop;
+	trace_t tr;
+	int r, i;
+
+	VectorCopy(ent->s.origin, start);
+	start[2] += 4.0f;
+
+	for (r = 0; r < (int)(sizeof(radii) / sizeof(radii[0])); r++) {
+		for (i = 0; i < 12; i++) {
+			float angle = ((float)i / 12.0f) * 2.0f * M_PI;
+			candidate[0] = start[0] + cos(angle) * radii[r];
+			candidate[1] = start[1] + sin(angle) * radii[r];
+			candidate[2] = start[2];
+
+			tr = gi.trace(start, ent->mins, ent->maxs, candidate, ent, MASK_PLAYERSOLID);
+			if (tr.startsolid || tr.allsolid || tr.fraction < 0.95f)
+				continue;
+
+			VectorCopy(candidate, drop);
+			drop[2] -= 96.0f;
+			tr = gi.trace(candidate, ent->mins, ent->maxs, drop, ent, MASK_SOLID);
+			if (tr.startsolid || tr.allsolid || tr.fraction == 1.0f || tr.plane.normal[2] < 0.7f)
+				continue;
+			if (ML_OriginBlockedByClient(ent, tr.endpos))
+				continue;
+
+			VectorCopy(tr.endpos, ent->s.origin);
+			VectorCopy(ent->s.origin, ent->s.old_origin);
+			VectorClear(ent->velocity);
+			ent->groundentity = tr.ent;
+			ent->groundentity_linkcount = tr.ent ? tr.ent->linkcount : 0;
+			if (ent->client)
+				ent->client->ps.pmove.pm_flags |= PMF_ON_GROUND;
+			gi.linkentity(ent);
+			return qtrue;
+		}
+	}
+
+	return qfalse;
+}
+
+static gitem_t *ML_WeaponForAction(uint8_t weapon)
+{
+	switch (weapon)
+	{
+	case 1: return FindItem("Blaster");
+	case 2: return FindItem("Shotgun");
+	case 3: return FindItem("Super Shotgun");
+	case 4: return FindItem("Machinegun");
+	case 5: return FindItem("Chaingun");
+	case 6: return FindItem("Grenade Launcher");
+	case 7: return FindItem("Rocket Launcher");
+	case 8: return FindItem("HyperBlaster");
+	case 9: return FindItem("Railgun");
+	default: return NULL;
+	}
+}
+
+static void ML_SelectWeapon(edict_t *ent, uint8_t weapon)
+{
+	gitem_t *item;
+	int index;
+
+	if (!ent || !ent->client)
+		return;
+
+	item = ML_WeaponForAction(weapon);
+	if (!item)
+		return;
+
+	index = ITEM_INDEX(item);
+	if (index <= 0 || !ent->client->pers.inventory[index])
+		return;
+
+	Use_Weapon(ent, item);
+}
+
+static void ML_UpdateStuckGuard(edict_t *ent, const ml_action_t *act)
+{
+	int slot;
+	vec3_t delta;
+	float moved;
+	qboolean wants_move;
+
+	if (!ent || !ent->client || !act)
+		return;
+
+	slot = (int)(ent - g_edicts - 1);
+	if (slot < 0 || slot >= ML_STUCK_MAX_SLOTS)
+		return;
+
+	wants_move = (fabs(act->move_forward) > 0.15f ||
+		fabs(act->move_right) > 0.15f || act->jump || act->hook);
+
+	if (!ml_last_origin_valid[slot]) {
+		VectorCopy(ent->s.origin, ml_last_origin[slot]);
+		ml_last_origin_valid[slot] = 1;
+		ml_stuck_ticks[slot] = 0;
+		return;
+	}
+
+	VectorSubtract(ent->s.origin, ml_last_origin[slot], delta);
+	moved = VectorLength(delta);
+	VectorCopy(ent->s.origin, ml_last_origin[slot]);
+
+	if (!wants_move || moved > 2.0f || ent->deadflag) {
+		ml_stuck_ticks[slot] = 0;
+		return;
+	}
+
+	ml_stuck_ticks[slot]++;
+	if (ml_stuck_ticks[slot] == ML_STUCK_NUDGE_TICKS) {
+		if (ML_TryLateralUnstick(ent)) {
+			ml_stuck_ticks[slot] = 0;
+			VectorCopy(ent->s.origin, ml_last_origin[slot]);
+			return;
+		}
+		ent->velocity[0] += 360.0f * crandom();
+		ent->velocity[1] += 360.0f * crandom();
+	}
+	else if (ml_stuck_ticks[slot] >= ML_STUCK_RESPAWN_TICKS) {
+		gi.dprintf("ML: slot %d stuck at %.1f %.1f %.1f; respawning\n",
+			slot, ent->s.origin[0], ent->s.origin[1], ent->s.origin[2]);
+		ml_stuck_ticks[slot] = 0;
+		PutBotInServer(ent);
+		VectorCopy(ent->s.origin, ml_last_origin[slot]);
+	}
+}
+
+static uint32_t ML_ControlSource(edict_t *ent)
+{
+	if (!ent || !ent->client)
+		return ML_CONTROL_UNKNOWN;
+	if (ent->client->zc.ml_enabled)
+		return ML_CONTROL_ML_BOT;
+	if (ent->svflags & SVF_MONSTER)
+		return ML_CONTROL_LEGACY_BOT;
+	return ML_CONTROL_HUMAN;
+}
+
+static uint32_t ML_DebugFlags(edict_t *ent, float visible)
+{
+	uint32_t flags = 0;
+
+	if (!ent)
+		return flags;
+	if (ent->client)
+		flags |= ML_ENTITY_CLIENT;
+	if (ent->svflags & SVF_MONSTER)
+		flags |= ML_ENTITY_BOT;
+	if (ent->client && ent->client->zc.ml_enabled)
+		flags |= ML_ENTITY_ML;
+	if (visible > 0.0f)
+		flags |= ML_ENTITY_VISIBLE;
+	if (ent->deadflag)
+		flags |= ML_ENTITY_DEAD;
+	if (ent->lithium_flags & LITHIUM_OBSERVER)
+		flags |= ML_ENTITY_OBSERVER;
+	if (ent->solid == SOLID_NOT)
+		flags |= ML_ENTITY_SOLID_NOT;
+	if (ent->movetype == MOVETYPE_NOCLIP)
+		flags |= ML_ENTITY_NOCLIP;
+	if (ent->svflags & SVF_NOCLIENT)
+		flags |= ML_ENTITY_NOCLIENT;
+	if (ent->client && (ent->client->pers.spectator || ent->client->resp.spectator))
+		flags |= ML_ENTITY_SPECTATOR;
+	if (ent->flags & FL_FLY)
+		flags |= ML_ENTITY_FLY;
+	if (ent->flags & FL_SWIM)
+		flags |= ML_ENTITY_SWIM;
+	if (ent->client && ent->client->ps.pmove.pm_type == PM_SPECTATOR)
+		flags |= ML_ENTITY_PM_SPECTATOR;
+	if (ent->client && ent->client->ps.pmove.pm_type == PM_FREEZE)
+		flags |= ML_ENTITY_PM_FREEZE;
+	if (ent->groundentity)
+		flags |= ML_ENTITY_GROUNDED;
+	if (ent->client && (ent->client->ps.pmove.pm_flags & PMF_ON_GROUND))
+		flags |= ML_ENTITY_PM_ON_GROUND;
+	return flags;
+}
+
+static void ML_FillDebugIdentity(ml_entity_debug_t *dst, edict_t *ent, float visible)
+{
+	int edict_index = ent ? (int)(ent - g_edicts) : 0;
+
+	memset(dst, 0, sizeof(*dst));
+	dst->edict_index    = (uint32_t)edict_index;
+	dst->client_slot    = (edict_index > 0) ? (uint32_t)(edict_index - 1) : 0;
+	dst->control_source = ML_ControlSource(ent);
+	dst->flags          = ML_DebugFlags(ent, visible);
+}
+
+static void ML_FillActionDebug(ml_action_debug_t *dst, zgcl_t *zc)
+{
+	memset(dst, 0, sizeof(*dst));
+	dst->tick          = (uint32_t)zc->ml_last_action_tick;
+	dst->accepted      = (uint32_t)zc->ml_last_action_ok;
+	dst->timeout_count = (uint32_t)zc->ml_timeout_count;
+	dst->weapon        = (uint32_t)zc->ml_weapon;
+	dst->move_forward  = zc->ml_move_forward;
+	dst->move_right    = zc->ml_move_right;
+	dst->look_yaw      = zc->ml_look_yaw;
+	dst->look_pitch    = zc->ml_look_pitch;
+	dst->jump          = (uint32_t)zc->ml_jump;
+	dst->fire          = (uint32_t)zc->ml_fire;
+	dst->hook          = (uint32_t)zc->ml_hook;
+}
 
 /* Pack the bot's current state into an ml_obs_t structure. */
 void ML_PackObs(edict_t *ent, ml_obs_t *obs)
@@ -21,6 +268,8 @@ void ML_PackObs(edict_t *ent, ml_obs_t *obs)
 	int       i, n;
 	edict_t   *other;
 	vec3_t    rel;
+	vec3_t    rel_local;
+	vec3_t    forward, right, up;
 	zgcl_t    *zc = &ent->client->zc;
 
 	memset(obs, 0, sizeof(*obs));
@@ -41,8 +290,10 @@ void ML_PackObs(edict_t *ent, ml_obs_t *obs)
 	obs->self.ammo      = (float)(ent->client->pers.weapon && ent->client->pers.weapon->ammo
 		? ent->client->pers.inventory[ITEM_INDEX(FindItem(ent->client->pers.weapon->ammo))]
 		: 0);
+	ML_FillDebugIdentity(&obs->self_debug, ent, 1.0f);
 
 	/* ── visible entities (other clients only for now) ─────── */
+	AngleVectors(ent->s.angles, forward, right, up);
 	n = 0;
 	for (i = 1; i <= maxclients->value && n < ML_MAX_ENTITIES; i++)
 	{
@@ -51,15 +302,24 @@ void ML_PackObs(edict_t *ent, ml_obs_t *obs)
 			continue;
 		if (!other->client)
 			continue;
+		if (other->solid == SOLID_NOT ||
+		    other->client->pers.spectator ||
+		    other->client->resp.spectator ||
+		    (other->lithium_flags & LITHIUM_OBSERVER))
+			continue;
 
 		VectorSubtract(other->s.origin, ent->s.origin, rel);
-		VectorCopy(rel,             obs->entities[n].rel_pos);
+		rel_local[0] = DotProduct(rel, forward);
+		rel_local[1] = DotProduct(rel, right);
+		rel_local[2] = DotProduct(rel, up);
+		VectorCopy(rel_local,       obs->entities[n].rel_pos);
 		VectorCopy(other->velocity, obs->entities[n].vel);
 		obs->entities[n].health    = (float)other->health;
 		obs->entities[n].is_enemy  = ctf->value
 			? (other->client->resp.ctf_team != ent->client->resp.ctf_team ? 1.0f : 0.0f)
 			: 1.0f;
-		obs->entities[n].visible   = Bot_traceS(ent, other) ? 1.0f : 0.0f;
+		obs->entities[n].visible   = ML_TargetExposure(ent, other);
+		ML_FillDebugIdentity(&obs->entity_debug[n], other, obs->entities[n].visible);
 		n++;
 	}
 	obs->entity_count = (uint32_t)n;
@@ -67,6 +327,7 @@ void ML_PackObs(edict_t *ent, ml_obs_t *obs)
 	/* ── rays / hook zones ────────────────────────────────── */
 	ML_FillRays(ent, obs);
 	ML_FillHookZones(ent, obs);
+	ML_FillActionDebug(&obs->action_debug, zc);
 
 	/* ── audio ────────────────────────────────────────────── */
 	if (level.sound_entity && level.sound_entity_framenum >= level.framenum - 30)
@@ -96,7 +357,21 @@ void ML_PackObs(edict_t *ent, ml_obs_t *obs)
 	zc->ml_reward_item         = 0;
 	zc->ml_reward_hook         = 0;
 
-	obs->is_terminal = (ent->deadflag || level.intermissiontime > 0) ? 1 : 0;
+	if (level.intermissiontime > 0)
+	{
+		obs->is_terminal = 1;
+		obs->terminal_reason = ML_TERMINAL_INTERMISSION;
+	}
+	else if (ent->deadflag)
+	{
+		obs->is_terminal = 1;
+		obs->terminal_reason = ML_TERMINAL_DEATH;
+	}
+	else
+	{
+		obs->is_terminal = 0;
+		obs->terminal_reason = ML_TERMINAL_NONE;
+	}
 }
 
 
@@ -154,9 +429,7 @@ void ML_ApplyAction(edict_t *ent, const ml_action_t *act)
 	/* ── weapon select ────────────────────────────────────── */
 	if (act->weapon > 0 && act->weapon < 10)
 	{
-		/* simple slot-based weapon selection — pick from the bot's BOP_PRIWEP
-		 * style table.  For MVP we just no-op; integrating this properly
-		 * means walking the inventory. */
+		ML_SelectWeapon(ent, act->weapon);
 	}
 
 	/* ── fire ─────────────────────────────────────────────── */
@@ -171,6 +444,25 @@ void ML_ApplyAction(edict_t *ent, const ml_action_t *act)
 	}
 
 	/* ── hook (Lithium grapple) ───────────────────────────── */
-	/* Hook integration arrives once map generator emits hook zones. */
-	(void)act->hook;
+	if (act->hook == 1)
+	{
+		if (use_hook && use_hook->value &&
+		    !(ent->lithium_flags & LITHIUM_OBSERVER) &&
+		    ent->deadflag == DEAD_NO)
+		{
+			Weapon_Hook_Fire(ent);
+			ent->safety_time = 0;
+		}
+	}
+	else if (act->hook == 3)
+	{
+		Hook_Reset(ent->client->hook);
+	}
+
+	if (ent->client->hook_on && ent->client->hook)
+	{
+		Hook_Service(ent->client->hook);
+	}
+
+	ML_UpdateStuckGuard(ent, act);
 }

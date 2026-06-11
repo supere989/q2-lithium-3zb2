@@ -1,3 +1,4 @@
+#include <stdbool.h>
 // m_move.c -- monster movement
 
 #include "g_local.h"
