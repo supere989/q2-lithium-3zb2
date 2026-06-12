@@ -169,6 +169,39 @@ int ML_RecvAction(int bot_slot, uint32_t tick, ml_action_t *act,
     ml_bot_sock_t *s = &g_socks[bot_slot];
     if (s->fd < 0) { *act = s->last_action; return -1; }
 
+    /* Self-arming lockstep: never block before the harness has answered
+       this socket at least once. ML bots spawn staggered at boot, and a
+       bot blocking its timeout every frame before the harness is even
+       listening delays every later spawn — with 4 ML slots the last bot
+       took ~60s to appear and the harness's 25s reset window starved. */
+    if (s->last_action_tick == 0) {
+        ml_action_t incoming;
+        ssize_t n;
+        while ((n = recv(s->fd, &incoming, sizeof(incoming), MSG_DONTWAIT)) >= 0
+               || errno == EINTR) {
+            if (n == sizeof(incoming) && incoming.magic == ML_ACT_MAGIC) {
+                s->last_action = incoming;
+                s->last_action_tick = incoming.tick;
+                *act = incoming;
+                return 0;
+            }
+        }
+        *act = s->last_action;
+        return -1;
+    }
+
+    /* The harness answers a frame with one burst of actions for every
+       bot, so only the FIRST waiter of a frame needs the long timeout
+       (covering the trainer's full step). Later waiters' actions are
+       either already queued or never coming — without this cap a frame
+       the harness skipped cost n_bots stacked timeouts, and the harness
+       could never re-synchronize inside its own step deadline. */
+    static uint32_t long_wait_frame = 0;
+    if (tick == long_wait_frame && timeout_ms > 100)
+        timeout_ms = 100;
+    else
+        long_wait_frame = tick;
+
     struct timeval tv;
     tv.tv_sec  = timeout_ms / 1000;
     tv.tv_usec = (timeout_ms % 1000) * 1000;
