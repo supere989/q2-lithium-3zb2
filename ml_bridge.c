@@ -159,6 +159,42 @@ int ML_BotStep(int bot_slot, const ml_obs_t *obs, ml_action_t *act,
 }
 
 
+/* Two-phase lockstep, phase 2: block for this frame's action. The obs was
+   already sent for every ML bot in the G_RunFrame pre-pass (phase 1), so
+   the harness sees the whole frame's observations before any bot blocks —
+   sequential per-bot send-then-block deadlocked multi-bot lockstep. */
+int ML_RecvAction(int bot_slot, uint32_t tick, ml_action_t *act,
+                  int timeout_ms) {
+    if (bot_slot < 0 || bot_slot >= MAX_BOTS_ML) return -1;
+    ml_bot_sock_t *s = &g_socks[bot_slot];
+    if (s->fd < 0) { *act = s->last_action; return -1; }
+
+    struct timeval tv;
+    tv.tv_sec  = timeout_ms / 1000;
+    tv.tv_usec = (timeout_ms % 1000) * 1000;
+    setsockopt(s->fd, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
+
+    while (1) {
+        ml_action_t incoming;
+        ssize_t n = recv(s->fd, &incoming, sizeof(incoming), 0);
+        if (n < 0) {
+            if (errno == EINTR) continue;
+            break;                           /* timeout */
+        }
+        if (n == sizeof(incoming) && incoming.magic == ML_ACT_MAGIC &&
+            incoming.tick == tick) {
+            s->last_action = incoming;
+            s->last_action_tick = incoming.tick;
+            *act = incoming;
+            return 0;
+        }
+    }
+
+    /* timeout or bad packet — reuse last action (fallback) */
+    *act = s->last_action;
+    return -1;
+}
+
 int ML_SendObsOnly(int bot_slot, const ml_obs_t *obs) {
     if (bot_slot < 0 || bot_slot >= MAX_BOTS_ML) return -1;
     ml_bot_sock_t *s = &g_socks[bot_slot];

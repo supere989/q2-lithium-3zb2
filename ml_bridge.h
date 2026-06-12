@@ -184,8 +184,15 @@ int  ML_BotStep(int bot_slot, const ml_obs_t *obs, ml_action_t *act,
 
 /* Fire-and-forget obs send with no action wait. Used for terminal packets
    (death) where the harness will not reply; never blocks the server frame.
-   Returns 0 on send, -1 on error. */
+   Also phase 1 of two-phase lockstep (G_RunFrame pre-pass sends every ML
+   bot's obs before any bot blocks). Returns 0 on send, -1 on error. */
 int  ML_SendObsOnly(int bot_slot, const ml_obs_t *obs);
+
+/* Two-phase lockstep, phase 2: block up to timeout_ms for the action
+   answering the obs with this tick. Returns 0 on match, -1 on timeout
+   (act holds the previous action as fallback). */
+int  ML_RecvAction(int bot_slot, uint32_t tick, ml_action_t *act,
+                   int timeout_ms);
 
 /* Call on bot removal. Closes socket. */
 void ML_BotShutdown(int bot_slot);

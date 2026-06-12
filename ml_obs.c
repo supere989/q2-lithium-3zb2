@@ -362,8 +362,13 @@ void ML_PackObs(edict_t *ent, ml_obs_t *obs)
 		obs->is_terminal = 1;
 		obs->terminal_reason = ML_TERMINAL_INTERMISSION;
 	}
-	else if (ent->deadflag)
+	else if (ent->deadflag && !zc->ml_death_obs_sent)
 	{
+		/* Terminal exactly once per death. Dead bots keep streaming
+		   regular (non-terminal) corpse obs from the G_RunFrame pre-pass
+		   so lockstep never starves while a bot awaits respawn; without
+		   this gate every corpse frame would end a one-step episode and
+		   collect a fresh death penalty. */
 		obs->is_terminal = 1;
 		obs->terminal_reason = ML_TERMINAL_DEATH;
 	}

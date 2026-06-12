@@ -357,14 +357,23 @@ void Bot_Think (edict_t *self)
 	else if(self->client->zc.ml_enabled)
 	{
 		/* ── ML-controlled bot — UDP bridge to Python policy ── */
-		ml_obs_t    obs;
 		ml_action_t act;
 		int slot = (int)(self - g_edicts - 1);
-		int timeout_ms = (ml_async && ml_async->value)
-			? 0 /* pipelined: apply newest cached action, never block */
-			: (ml_step_timeout ? (int)ml_step_timeout->value : 80);
-		ML_PackObs(self, &obs);
-		ML_BotStep(slot, &obs, &act, timeout_ms);
+		if (ml_async && ml_async->value)
+		{
+			/* pipelined: send obs, apply newest cached action, never block */
+			ml_obs_t obs;
+			ML_PackObs(self, &obs);
+			ML_BotStep(slot, &obs, &act, 0);
+		}
+		else
+		{
+			/* two-phase lockstep: this frame's obs went out in the
+			   G_RunFrame pre-pass; just block for the matching action.
+			   obs->tick is level.framenum, so validate against that. */
+			ML_RecvAction(slot, (uint32_t)level.framenum, &act,
+			              ml_step_timeout ? (int)ml_step_timeout->value : 80);
+		}
 		ML_ApplyAction(self, &act);
 		if(!self->inuse) return;
 
