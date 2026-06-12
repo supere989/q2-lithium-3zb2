@@ -3,6 +3,7 @@
 
 #include "g_local.h"
 #include "bot.h"
+#include "rune_bits.h"
 
 // from g_ai.c
 qboolean visible (edict_t *self, edict_t *other)
@@ -615,10 +616,37 @@ void T_Damage (edict_t *targ, edict_t *inflictor, edict_t *attacker, vec3_t dir,
 		    && attacker != targ)
 		{
 			attacker->client->zc.ml_reward_damage_dealt += (float)take;
+			/* Offense payoff while holding an offense rune (strength|haste):
+			   the policy learns those runes are worth fighting with. */
+			if (attacker->rune & (RUNE_STRENGTH | RUNE_HASTE))
+				attacker->client->zc.ml_reward_offense += (float)take;
 		}
 		if (targ->client && targ->client->zc.ml_enabled)
 		{
-			targ->client->zc.ml_reward_damage_taken += (float)take;
+			zgcl_t *tz = &targ->client->zc;
+			tz->ml_reward_damage_taken += (float)take;
+			/* Survival payoff: armour (and power-armour) that ate this hit
+			   is why you're still alive — credit the absorbed amount so the
+			   policy values holding armour under fire. */
+			if (asave > 0)
+				tz->ml_reward_survival += (float)asave;
+			/* Inbound damage vector + "how hard" proximity weighting. A
+			   point-blank hit (dist→0) weights ~1; a cross-map rail (~ref)
+			   →0. prox channel = take × weight so close hard hits dominate
+			   the aversion signal the policy feels. */
+			if (attacker && attacker != targ)
+			{
+				vec3_t to_atk;
+				float  d, w;
+				VectorSubtract(attacker->s.origin, targ->s.origin, to_atk);
+				d = VectorLength(to_atk);
+				if (d > 1.0f) VectorScale(to_atk, 1.0f / d, tz->ml_inbound_dmg_dir);
+				tz->ml_inbound_dmg_dist  = d;
+				tz->ml_inbound_dmg_frame = level.framenum;
+				w = 1.0f - (d / 1500.0f);   /* 1500u ≈ cross-room reference */
+				if (w < 0.05f) w = 0.05f; else if (w > 1.0f) w = 1.0f;
+				tz->ml_reward_damage_taken_prox += (float)take * w;
+			}
 		}
 
 		if (targ->health <= 0)

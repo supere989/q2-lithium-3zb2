@@ -131,6 +131,20 @@ typedef struct {
     float           reward_item_pickup;
     float           reward_hook_traversal;
 
+    /* q2-ml-bot extended reward channels — always sent, consumed by both
+       runs' reward shaping (never part of the policy input vector). */
+    float           reward_damage_taken_prox; /* hit hardness: take × proximity */
+    float           reward_offense;           /* offense payoff w/ strength|haste */
+    float           reward_survival;          /* recovery payoff w/ regen|vampire */
+
+    /* q2-ml-bot extended observation block — always sent. Appended to the
+       policy input ONLY when Q2_EXT_OBS=1 (Run B, fresh policy); Run A leaves
+       it out so the 206-dim checkpoint keeps resuming. */
+    float           rune_flags[5];      /* resist, strength, haste, regen, vampire (0/1) */
+    float           inbound_dmg_dir[3]; /* unit vector toward most recent attacker */
+    float           inbound_dmg_dist;   /* units to that attacker, -1 if none */
+    float           inbound_dmg_recency;/* 1.0 fresh → 0 by ~1s, decays per frame */
+
     uint8_t         is_terminal;    /* 1 on death/level-change */
     uint8_t         terminal_reason;/* ML_TERMINAL_* */
     uint8_t         _pad[2];

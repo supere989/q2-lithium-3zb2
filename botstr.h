@@ -104,6 +104,15 @@ typedef struct zgcl_s
 	float		ml_reward_death;
 	float		ml_reward_item;
 	float		ml_reward_hook;
+	/* q2-ml-bot extended reward channels (always accumulated; both runs) */
+	float		ml_reward_damage_taken_prox;	/* damage_taken weighted by attacker proximity */
+	float		ml_reward_offense;		/* damage dealt while holding strength/haste */
+	float		ml_reward_survival;		/* health recovered while holding regen/vampire */
+	/* inbound damage vector (most recent significant hit, decays each frame) */
+	float		ml_inbound_dmg_dir[3];		/* unit vector toward the attacker */
+	float		ml_inbound_dmg_dist;		/* distance to that attacker, -1 if none */
+	int			ml_inbound_dmg_frame;		/* level.framenum of that hit */
+	float		ml_last_health;			/* prev-frame health for recovery delta */
 	/* cached last action for sub-tick application */
 	float		ml_move_forward;
 	float		ml_move_right;
