@@ -29,6 +29,7 @@ typedef struct {
     uint16_t        port;           /* ml_port_base + slot */
     struct sockaddr_in harness_addr;
     ml_action_t     last_action;    /* cached for timeout fallback */
+    uint32_t        last_action_tick; /* newest tick ever applied (input cache) */
 } ml_bot_sock_t;
 
 static ml_bot_sock_t g_socks[MAX_BOTS_ML];
@@ -70,6 +71,7 @@ int ML_BotInit(int bot_slot) {
     /* default action: stand still */
     memset(&s->last_action, 0, sizeof(s->last_action));
     s->last_action.magic = ML_ACT_MAGIC;
+    s->last_action_tick = 0;
 
     gi.dprintf("ML: bot slot %d → UDP port %d\n", bot_slot, s->port);
     return 0;
@@ -83,12 +85,17 @@ int ML_BotStep(int bot_slot, const ml_obs_t *obs, ml_action_t *act,
     ml_action_t queued_action;
     int got_queued = 0;
 
-    /* Drain queued actions from socket buffer, caching the latest valid one */
+    /* Drain queued actions, keeping the newest decision we have not yet
+       applied (newest-action-wins input cache). Exact tick match is not
+       required: in pipelined multi-bot operation a fresh decision for the
+       previous frame is far better than discarding it and coasting. */
     while (1) {
         ml_action_t incoming;
         ssize_t n = recv(s->fd, &incoming, sizeof(incoming), MSG_DONTWAIT);
         if (n == sizeof(incoming)) {
-            if (incoming.magic == ML_ACT_MAGIC && incoming.tick == obs->tick) {
+            if (incoming.magic == ML_ACT_MAGIC &&
+                incoming.tick > s->last_action_tick &&
+                (!got_queued || incoming.tick >= queued_action.tick)) {
                 queued_action = incoming;
                 got_queued = 1;
             }
@@ -112,14 +119,22 @@ int ML_BotStep(int bot_slot, const ml_obs_t *obs, ml_action_t *act,
         return -1;
     }
 
-    /* If the drained queued action happens to match the tick we just sent, use it immediately */
+    /* Apply the newest drained decision immediately */
     if (got_queued) {
         s->last_action = queued_action;
+        s->last_action_tick = queued_action.tick;
         *act = queued_action;
         return 0;
     }
 
-    /* wait for action with timeout, demanding tick validation */
+    /* Pipelined (async) mode: never block the frame — coast on the cached
+       action; the decision for this obs will be drained next frame. */
+    if (timeout_ms <= 0) {
+        *act = s->last_action;
+        return 0;
+    }
+
+    /* Lockstep mode: wait for this frame's action with timeout */
     struct timeval tv = { 0, timeout_ms * 1000 };
     setsockopt(s->fd, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
 
@@ -131,6 +146,7 @@ int ML_BotStep(int bot_slot, const ml_obs_t *obs, ml_action_t *act,
         if (n == sizeof(incoming) && incoming.magic == ML_ACT_MAGIC) {
             if (incoming.tick == obs->tick) {
                 s->last_action = incoming;
+                s->last_action_tick = incoming.tick;
                 *act = incoming;
                 return 0;
             }

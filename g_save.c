@@ -241,6 +241,10 @@ void InitGame (void)
 	/* recv timeout in ms for the Python action reply.  Default 80 (8x server tick).
 	   For sv_timedemo training, drop to 5-10 so a slow Python doesn't bottleneck. */
 	ml_step_timeout = gi.cvar ("ml_step_timeout", "80", 0);
+	/* pipelined action protocol: never block the frame on the Python reply;
+	   apply the newest cached action instead (one-frame decision delay).
+	   Required when more than one ML slot shares a server. */
+	ml_async = gi.cvar ("ml_async", "0", 0);
 
 	// items
 	InitItems ();

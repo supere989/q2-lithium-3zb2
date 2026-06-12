@@ -79,6 +79,7 @@ cvar_t  *ml_enabled;
 cvar_t  *ml_bot_slot;
 cvar_t  *ml_port_base;
 cvar_t  *ml_step_timeout;
+cvar_t  *ml_async;
 cvar_t  *ml_spectators_only;
 static cvar_t *g_out_of_bounds_kill_z;
 

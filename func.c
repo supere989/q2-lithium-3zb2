@@ -360,7 +360,9 @@ void Bot_Think (edict_t *self)
 		ml_obs_t    obs;
 		ml_action_t act;
 		int slot = (int)(self - g_edicts - 1);
-		int timeout_ms = ml_step_timeout ? (int)ml_step_timeout->value : 80;
+		int timeout_ms = (ml_async && ml_async->value)
+			? 0 /* pipelined: apply newest cached action, never block */
+			: (ml_step_timeout ? (int)ml_step_timeout->value : 80);
 		ML_PackObs(self, &obs);
 		ML_BotStep(slot, &obs, &act, timeout_ms);
 		ML_ApplyAction(self, &act);

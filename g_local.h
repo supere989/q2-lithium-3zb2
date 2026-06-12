@@ -1287,6 +1287,7 @@ extern  cvar_t  *ml_enabled;
 extern  cvar_t  *ml_bot_slot;
 extern  cvar_t  *ml_port_base;
 extern  cvar_t  *ml_step_timeout;
+extern  cvar_t  *ml_async;
 
 #define GETTER		0
 #define	DEFENDER	1
