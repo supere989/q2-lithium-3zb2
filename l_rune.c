@@ -274,7 +274,8 @@ void Rune_Touch(edict_t *self, edict_t *other, cplane_t *plane, csurface_t *surf
    overfit protection comes from procedural map variety instead. Disable the
    dynamic spawner (rune_perplayer 0) when relying on these. */
 
-#define PLACED_RUNE_RESPAWN 25.0f
+#define PLACED_RUNE_RESPAWN 25.0f   /* hidden time after consume OR despawn */
+#define PLACED_RUNE_PRESENT 35.0f   /* time present-and-untouched before it despawns */
 
 static int RuneTypeFromClassname(const char *cn) {
 	if (!cn) return RUNE_STRENGTH;
@@ -288,14 +289,30 @@ static int RuneTypeFromClassname(const char *cn) {
 
 void PlacedRune_Touch(edict_t *self, edict_t *other, cplane_t *plane,
                       csurface_t *surf);
+void PlacedRune_Despawn(edict_t *self);
 
 void PlacedRune_Respawn(edict_t *self) {
 	self->solid = SOLID_TRIGGER;
 	self->svflags &= ~SVF_NOCLIENT;
 	self->touch = PlacedRune_Touch;
 	self->s.event = EV_ITEM_RESPAWN;
-	self->think = NULL;
-	self->nextthink = 0;
+	/* present now; despawn on its own if nobody grabs it (temporal
+	   anti-overfit — the voxel oscillates present/absent independent of
+	   pickup, so the bot can't assume a rune is always here). */
+	self->think = PlacedRune_Despawn;
+	self->nextthink = level.time + PLACED_RUNE_PRESENT;
+	gi.linkentity(self);
+}
+
+/* Rune timed out unpicked. Hide and schedule respawn — same hidden state as
+   a consume, but no player took it (the belief state distinguishes the two so
+   a despawn isn't misread as enemy presence). */
+void PlacedRune_Despawn(edict_t *self) {
+	self->solid = SOLID_NOT;
+	self->svflags |= SVF_NOCLIENT;
+	self->touch = NULL;
+	self->think = PlacedRune_Respawn;
+	self->nextthink = level.time + PLACED_RUNE_RESPAWN;
 	gi.linkentity(self);
 }
 
@@ -339,6 +356,9 @@ void SP_placed_rune(edict_t *self) {
 	gi.setmodel(self, "models/items/keys/pyramid/tris.md2");
 	self->s.effects = EF_ROTATE;
 	self->touch = PlacedRune_Touch;
+	/* start the present→despawn→respawn cycle */
+	self->think = PlacedRune_Despawn;
+	self->nextthink = level.time + PLACED_RUNE_PRESENT;
 	gi.linkentity(self);
 }
 
