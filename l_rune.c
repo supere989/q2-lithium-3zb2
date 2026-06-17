@@ -267,6 +267,81 @@ void Rune_Touch(edict_t *self, edict_t *other, cplane_t *plane, csurface_t *surf
 	G_FreeEdict(self);
 }
 
+/* ── q2-ml-bot: persistent, map-placed, respawning runes for ML training ──
+   The dynamic rune system is ephemeral (random locations = anti-overfit for
+   humans), which gives an ML bot ~0% rune exposure and no gradient to learn
+   the rune game. Placed runes give repeated exposure at known locations;
+   overfit protection comes from procedural map variety instead. Disable the
+   dynamic spawner (rune_perplayer 0) when relying on these. */
+
+#define PLACED_RUNE_RESPAWN 25.0f
+
+static int RuneTypeFromClassname(const char *cn) {
+	if (!cn) return RUNE_STRENGTH;
+	if (!strcmp(cn, "rune_strength")) return RUNE_STRENGTH;
+	if (!strcmp(cn, "rune_haste"))    return RUNE_HASTE;
+	if (!strcmp(cn, "rune_regen"))    return RUNE_REGEN;
+	if (!strcmp(cn, "rune_vampire"))  return RUNE_VAMPIRE;
+	if (!strcmp(cn, "rune_resist"))   return RUNE_RESIST;
+	return RUNE_STRENGTH;
+}
+
+void PlacedRune_Touch(edict_t *self, edict_t *other, cplane_t *plane,
+                      csurface_t *surf);
+
+void PlacedRune_Respawn(edict_t *self) {
+	self->solid = SOLID_TRIGGER;
+	self->svflags &= ~SVF_NOCLIENT;
+	self->touch = PlacedRune_Touch;
+	self->s.event = EV_ITEM_RESPAWN;
+	self->think = NULL;
+	self->nextthink = 0;
+	gi.linkentity(self);
+}
+
+void PlacedRune_Touch(edict_t *self, edict_t *other, cplane_t *plane,
+                      csurface_t *surf) {
+	int i;
+	if (!other->classname || strcmp(other->classname, "player"))
+		return;
+	if (other->health < 1 || level.intermissiontime)
+		return;
+	if (other->rune)
+		return;   /* one rune at a time (Lithium semantics) */
+
+	other->rune = self->rune;
+	other->client->regen_remainder = 0;
+	other->client->ps.stats[STAT_PICKUP_ICON] = gi.imageindex("k_pyramid");
+	for (i = 0; i < NUM_RUNES; i++)
+		if (self->rune & (1 << i))
+			other->client->ps.stats[STAT_PICKUP_STRING] = CS_RUNE1 + i;
+	other->client->pickup_msg_time = level.time + 3.0;
+	gi.sound(other, CHAN_AUTO, gi.soundindex("items/pkup.wav"), 1, ATTN_NORM, 0);
+	LNet_Rune(other, other->rune);
+
+	/* respawn instead of free — persistent training resource */
+	self->solid = SOLID_NOT;
+	self->svflags |= SVF_NOCLIENT;
+	self->touch = NULL;
+	self->think = PlacedRune_Respawn;
+	self->nextthink = level.time + PLACED_RUNE_RESPAWN;
+	gi.linkentity(self);
+}
+
+void SP_placed_rune(edict_t *self) {
+	if (!use_runes || !use_runes->value) { G_FreeEdict(self); return; }
+	self->rune = RuneTypeFromClassname(self->classname);
+	self->movetype = MOVETYPE_NONE;
+	self->solid = SOLID_TRIGGER;
+	VectorSet(self->mins, -16, -16, -16);
+	VectorSet(self->maxs, 16, 16, 16);
+	self->s.origin[2] += 16;   /* float so it's grabbable on the floor */
+	gi.setmodel(self, "models/items/keys/pyramid/tris.md2");
+	self->s.effects = EF_ROTATE;
+	self->touch = PlacedRune_Touch;
+	gi.linkentity(self);
+}
+
 void Rune_Remove(edict_t *self) {
 	int i;
 	for(i = 0; i < NUM_RUNES; i++)

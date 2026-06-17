@@ -15,6 +15,7 @@ void SP_item_health (edict_t *self);
 void SP_item_health_small (edict_t *self);
 void SP_item_health_large (edict_t *self);
 void SP_item_health_mega (edict_t *self);
+void SP_placed_rune (edict_t *self);   /* q2-ml-bot persistent runes */
 
 void SP_info_player_start (edict_t *ent);
 void SP_info_player_deathmatch (edict_t *ent);
@@ -171,6 +172,13 @@ spawn_t	spawns[] = {
 	{"item_health_small", SP_item_health_small},
 	{"item_health_large", SP_item_health_large},
 	{"item_health_mega", SP_item_health_mega},
+
+	/* q2-ml-bot: persistent map-placed runes (training resource) */
+	{"rune_strength", SP_placed_rune},
+	{"rune_haste",    SP_placed_rune},
+	{"rune_regen",    SP_placed_rune},
+	{"rune_vampire",  SP_placed_rune},
+	{"rune_resist",   SP_placed_rune},
 
 	{"info_player_start", SP_info_player_start},
 	{"info_player_deathmatch", SP_info_player_deathmatch},
