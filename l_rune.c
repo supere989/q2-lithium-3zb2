@@ -323,8 +323,12 @@ void PlacedRune_Touch(edict_t *self, edict_t *other, cplane_t *plane,
 		return;
 	if (other->health < 1 || level.intermissiontime)
 		return;
-	if (other->rune)
-		return;   /* one rune at a time (Lithium semantics) */
+	if (other->rune == self->rune)
+		return;   /* already holding this exact rune — nothing to swap */
+	/* Switching IS allowed: holding a different rune, swap to this one.
+	   Survivability needs change fast (low health → drop strength, grab
+	   regen; healthy → drop regen, grab strength), so the bot must be able
+	   to re-tool on the fly. The reward shaping decides WHEN it's worth it. */
 
 	other->rune = self->rune;
 	other->client->regen_remainder = 0;
