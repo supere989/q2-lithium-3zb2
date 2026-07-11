@@ -531,7 +531,11 @@ void player_die (edict_t *self, edict_t *inflictor, edict_t *attacker, int damag
 			LookAtKiller (self, inflictor, attacker);
 			self->nextthink = level.time + FRAMETIME;
 			self->think = Bot_Think;
-			self->client->respawn_time = level.time + 2.0;
+			/* q2-ml-bot: ML bots respawn fast — corpse frames are dead
+			   time in lockstep training (one frame is still needed so
+			   the terminal death obs goes out before respawn). */
+			self->client->respawn_time = level.time +
+				(self->client->zc.ml_enabled ? 0.2 : 2.0);
 			self->s.skinnum = (self - g_edicts - 1);
 		}
 		else

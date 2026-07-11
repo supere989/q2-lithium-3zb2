@@ -267,6 +267,105 @@ void Rune_Touch(edict_t *self, edict_t *other, cplane_t *plane, csurface_t *surf
 	G_FreeEdict(self);
 }
 
+/* ── q2-ml-bot: persistent, map-placed, respawning runes for ML training ──
+   The dynamic rune system is ephemeral (random locations = anti-overfit for
+   humans), which gives an ML bot ~0% rune exposure and no gradient to learn
+   the rune game. Placed runes give repeated exposure at known locations;
+   overfit protection comes from procedural map variety instead. Disable the
+   dynamic spawner (rune_perplayer 0) when relying on these. */
+
+#define PLACED_RUNE_RESPAWN 25.0f   /* hidden time after consume OR despawn */
+#define PLACED_RUNE_PRESENT 35.0f   /* time present-and-untouched before it despawns */
+
+static int RuneTypeFromClassname(const char *cn) {
+	if (!cn) return RUNE_STRENGTH;
+	if (!strcmp(cn, "rune_strength")) return RUNE_STRENGTH;
+	if (!strcmp(cn, "rune_haste"))    return RUNE_HASTE;
+	if (!strcmp(cn, "rune_regen"))    return RUNE_REGEN;
+	if (!strcmp(cn, "rune_vampire"))  return RUNE_VAMPIRE;
+	if (!strcmp(cn, "rune_resist"))   return RUNE_RESIST;
+	return RUNE_STRENGTH;
+}
+
+void PlacedRune_Touch(edict_t *self, edict_t *other, cplane_t *plane,
+                      csurface_t *surf);
+void PlacedRune_Despawn(edict_t *self);
+
+void PlacedRune_Respawn(edict_t *self) {
+	self->solid = SOLID_TRIGGER;
+	self->svflags &= ~SVF_NOCLIENT;
+	self->touch = PlacedRune_Touch;
+	self->s.event = EV_ITEM_RESPAWN;
+	/* present now; despawn on its own if nobody grabs it (temporal
+	   anti-overfit — the voxel oscillates present/absent independent of
+	   pickup, so the bot can't assume a rune is always here). */
+	self->think = PlacedRune_Despawn;
+	self->nextthink = level.time + PLACED_RUNE_PRESENT;
+	gi.linkentity(self);
+}
+
+/* Rune timed out unpicked. Hide and schedule respawn — same hidden state as
+   a consume, but no player took it (the belief state distinguishes the two so
+   a despawn isn't misread as enemy presence). */
+void PlacedRune_Despawn(edict_t *self) {
+	self->solid = SOLID_NOT;
+	self->svflags |= SVF_NOCLIENT;
+	self->touch = NULL;
+	self->think = PlacedRune_Respawn;
+	self->nextthink = level.time + PLACED_RUNE_RESPAWN;
+	gi.linkentity(self);
+}
+
+void PlacedRune_Touch(edict_t *self, edict_t *other, cplane_t *plane,
+                      csurface_t *surf) {
+	int i;
+	if (!other->classname || strcmp(other->classname, "player"))
+		return;
+	if (other->health < 1 || level.intermissiontime)
+		return;
+	if (other->rune == self->rune)
+		return;   /* already holding this exact rune — nothing to swap */
+	/* Switching IS allowed: holding a different rune, swap to this one.
+	   Survivability needs change fast (low health → drop strength, grab
+	   regen; healthy → drop regen, grab strength), so the bot must be able
+	   to re-tool on the fly. The reward shaping decides WHEN it's worth it. */
+
+	other->rune = self->rune;
+	other->client->regen_remainder = 0;
+	other->client->ps.stats[STAT_PICKUP_ICON] = gi.imageindex("k_pyramid");
+	for (i = 0; i < NUM_RUNES; i++)
+		if (self->rune & (1 << i))
+			other->client->ps.stats[STAT_PICKUP_STRING] = CS_RUNE1 + i;
+	other->client->pickup_msg_time = level.time + 3.0;
+	gi.sound(other, CHAN_AUTO, gi.soundindex("items/pkup.wav"), 1, ATTN_NORM, 0);
+	LNet_Rune(other, other->rune);
+
+	/* respawn instead of free — persistent training resource */
+	self->solid = SOLID_NOT;
+	self->svflags |= SVF_NOCLIENT;
+	self->touch = NULL;
+	self->think = PlacedRune_Respawn;
+	self->nextthink = level.time + PLACED_RUNE_RESPAWN;
+	gi.linkentity(self);
+}
+
+void SP_placed_rune(edict_t *self) {
+	if (!use_runes || !use_runes->value) { G_FreeEdict(self); return; }
+	self->rune = RuneTypeFromClassname(self->classname);
+	self->movetype = MOVETYPE_NONE;
+	self->solid = SOLID_TRIGGER;
+	VectorSet(self->mins, -16, -16, -16);
+	VectorSet(self->maxs, 16, 16, 16);
+	self->s.origin[2] += 16;   /* float so it's grabbable on the floor */
+	gi.setmodel(self, "models/items/keys/pyramid/tris.md2");
+	self->s.effects = EF_ROTATE;
+	self->touch = PlacedRune_Touch;
+	/* start the present→despawn→respawn cycle */
+	self->think = PlacedRune_Despawn;
+	self->nextthink = level.time + PLACED_RUNE_PRESENT;
+	gi.linkentity(self);
+}
+
 void Rune_Remove(edict_t *self) {
 	int i;
 	for(i = 0; i < NUM_RUNES; i++)

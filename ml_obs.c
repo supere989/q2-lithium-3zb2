@@ -10,6 +10,7 @@
 #include "g_local.h"
 #include "bot.h"
 #include "ml_bridge.h"
+#include "rune_bits.h"
 #include "ml_sensors.h"
 #include <math.h>
 #include <string.h>
@@ -342,28 +343,70 @@ void ML_PackObs(edict_t *ent, ml_obs_t *obs)
 		}
 	}
 
-	/* ── reward components (cleared after send) ───────────── */
-	obs->reward_damage_dealt   = zc->ml_reward_damage_dealt;
-	obs->reward_damage_taken   = zc->ml_reward_damage_taken;
-	obs->reward_kill           = zc->ml_reward_kill;
-	obs->reward_death          = zc->ml_reward_death;
-	obs->reward_item_pickup    = zc->ml_reward_item;
-	obs->reward_hook_traversal = zc->ml_reward_hook;
+	/* ── survival-recovery payoff (regen|vampire heal you back up) ── */
+	if ((ent->rune & (RUNE_REGEN | RUNE_VAMPIRE)) && !ent->deadflag)
+	{
+		float gain = (float)ent->health - zc->ml_last_health;
+		if (gain > 0.0f) zc->ml_reward_survival += gain;
+	}
+	zc->ml_last_health = (float)ent->health;
 
-	zc->ml_reward_damage_dealt = 0;
-	zc->ml_reward_damage_taken = 0;
-	zc->ml_reward_kill         = 0;
-	zc->ml_reward_death        = 0;
-	zc->ml_reward_item         = 0;
-	zc->ml_reward_hook         = 0;
+	/* ── rune awareness (extended obs; in policy input only when EXT_OBS) ── */
+	obs->rune_flags[0] = (ent->rune & RUNE_RESIST)   ? 1.0f : 0.0f;
+	obs->rune_flags[1] = (ent->rune & RUNE_STRENGTH) ? 1.0f : 0.0f;
+	obs->rune_flags[2] = (ent->rune & RUNE_HASTE)    ? 1.0f : 0.0f;
+	obs->rune_flags[3] = (ent->rune & RUNE_REGEN)    ? 1.0f : 0.0f;
+	obs->rune_flags[4] = (ent->rune & RUNE_VAMPIRE)  ? 1.0f : 0.0f;
+
+	/* ── inbound damage vector, decaying over ~1s (10 frames) ── */
+	{
+		int age = (int)level.framenum - zc->ml_inbound_dmg_frame;
+		if (zc->ml_inbound_dmg_frame > 0 && age >= 0 && age <= 10)
+		{
+			VectorCopy(zc->ml_inbound_dmg_dir, obs->inbound_dmg_dir);
+			obs->inbound_dmg_dist    = zc->ml_inbound_dmg_dist;
+			obs->inbound_dmg_recency = 1.0f - (float)age / 10.0f;
+		}
+		else
+		{
+			obs->inbound_dmg_dist    = -1.0f;
+			obs->inbound_dmg_recency = 0.0f;
+		}
+	}
+
+	/* ── reward components (cleared after send) ───────────── */
+	obs->reward_damage_dealt        = zc->ml_reward_damage_dealt;
+	obs->reward_damage_taken        = zc->ml_reward_damage_taken;
+	obs->reward_kill                = zc->ml_reward_kill;
+	obs->reward_death               = zc->ml_reward_death;
+	obs->reward_item_pickup         = zc->ml_reward_item;
+	obs->reward_hook_traversal      = zc->ml_reward_hook;
+	obs->reward_damage_taken_prox   = zc->ml_reward_damage_taken_prox;
+	obs->reward_offense             = zc->ml_reward_offense;
+	obs->reward_survival            = zc->ml_reward_survival;
+
+	zc->ml_reward_damage_dealt      = 0;
+	zc->ml_reward_damage_taken      = 0;
+	zc->ml_reward_kill              = 0;
+	zc->ml_reward_death             = 0;
+	zc->ml_reward_item              = 0;
+	zc->ml_reward_hook              = 0;
+	zc->ml_reward_damage_taken_prox = 0;
+	zc->ml_reward_offense           = 0;
+	zc->ml_reward_survival          = 0;
 
 	if (level.intermissiontime > 0)
 	{
 		obs->is_terminal = 1;
 		obs->terminal_reason = ML_TERMINAL_INTERMISSION;
 	}
-	else if (ent->deadflag)
+	else if (ent->deadflag && !zc->ml_death_obs_sent)
 	{
+		/* Terminal exactly once per death. Dead bots keep streaming
+		   regular (non-terminal) corpse obs from the G_RunFrame pre-pass
+		   so lockstep never starves while a bot awaits respawn; without
+		   this gate every corpse frame would end a one-step episode and
+		   collect a fresh death penalty. */
 		obs->is_terminal = 1;
 		obs->terminal_reason = ML_TERMINAL_DEATH;
 	}

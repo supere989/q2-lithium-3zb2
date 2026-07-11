@@ -1,5 +1,7 @@
 #include "g_local.h"
 #include "bot.h"
+#include "ml_bridge.h"
+#include "ml_obs.h"
 
 void Bot_SpawnCall(void);
 void Bot_LevelChange(void);
@@ -490,6 +492,34 @@ void G_RunFrame (void)
 	else
 	{
 		if(spawncycle < level.time) spawncycle = level.time + FRAMETIME * 10;
+	}
+
+	//
+	// q2-ml-bot two-phase lockstep, phase 1: send EVERY ML bot's obs for
+	// this frame before any bot's think blocks for its action. Sequential
+	// send-then-block inside each Bot_Think starved later bots' obs (the
+	// harness batches all sends after seeing the whole frame), which made
+	// multi-bot lockstep deadlock and forced pipelined mode — where stale
+	// actions coast for the entire trainer step. Dead bots are included:
+	// their corpse obs keep the harness fed while they await respawn
+	// (ML_PackObs gates the death terminal to fire exactly once), so one
+	// bot's death never stalls the other bots' action waits.
+	//
+	if (ml_enabled && ml_enabled->value && !(ml_async && ml_async->value))
+	{
+		for (i = 1; i <= maxclients->value; i++)
+		{
+			ent = &g_edicts[i];
+			if (!ent->inuse || !ent->client)
+				continue;
+			if (!ent->client->zc.ml_enabled)
+				continue;
+			{
+				ml_obs_t obs;
+				ML_PackObs(ent, &obs);
+				ML_SendObsOnly((int)(ent - g_edicts - 1), &obs);
+			}
+		}
 	}
 
 	//

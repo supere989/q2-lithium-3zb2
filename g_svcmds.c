@@ -6,6 +6,7 @@
 extern void SpawnBotReserving (void);
 extern void SpawnBotReserving2 (int *red, int *blue);
 extern qboolean RemoveBot (void);
+extern void Bot_LevelChange (void);
 
 void	Svcmd_Test_f (void)
 {
@@ -120,6 +121,25 @@ static void DebugSpawnCommand (int n)
 
 	targetindex = n;
 	SpawnBotReserving ();
+}
+
+/* ML harness live map rotation: a bare console `gamemap` bypasses
+   ExitLevel(), so 3ZB2 bots stay flagged BOT_SPAWNED while the level
+   reload frees their edicts — nobody respawns them and the new map comes
+   up empty. Mirror ExitLevel's bot handling (Bot_LevelChange marks every
+   spawned bot for respawn via SpawnWaitingBots) before changing maps. */
+static void MLRotateCommand (void)
+{
+	char command[256];
+
+	if (gi.argc () < 3)
+	{
+		gi.cprintf (NULL, PRINT_HIGH, "usage: sv ml_rotate <map>\n");
+		return;
+	}
+	Bot_LevelChange ();
+	Com_sprintf (command, sizeof(command), "gamemap \"%s\"\n", gi.argv (2));
+	gi.AddCommandString (command);
 }
 
 /*
@@ -413,6 +433,8 @@ void	ServerCommand (void)
 	else if (Q_stricmp (cmd, "debugbot") == 0
 	      || Q_stricmp (cmd, "dsp") == 0)
 		DebugSpawnCommand (gi.argc() <= 2 ? 1 : atoi (gi.argv(2)));
+	else if (Q_stricmp (cmd, "ml_rotate") == 0)
+		MLRotateCommand ();
 	else if (Q_stricmp (cmd, "addip") == 0)
 		SVCmd_AddIP_f ();
 	else if (Q_stricmp (cmd, "removeip") == 0)

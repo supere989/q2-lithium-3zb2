@@ -131,6 +131,20 @@ typedef struct {
     float           reward_item_pickup;
     float           reward_hook_traversal;
 
+    /* q2-ml-bot extended reward channels — always sent, consumed by both
+       runs' reward shaping (never part of the policy input vector). */
+    float           reward_damage_taken_prox; /* hit hardness: take × proximity */
+    float           reward_offense;           /* offense payoff w/ strength|haste */
+    float           reward_survival;          /* recovery payoff w/ regen|vampire */
+
+    /* q2-ml-bot extended observation block — always sent. Appended to the
+       policy input ONLY when Q2_EXT_OBS=1 (Run B, fresh policy); Run A leaves
+       it out so the 206-dim checkpoint keeps resuming. */
+    float           rune_flags[5];      /* resist, strength, haste, regen, vampire (0/1) */
+    float           inbound_dmg_dir[3]; /* unit vector toward most recent attacker */
+    float           inbound_dmg_dist;   /* units to that attacker, -1 if none */
+    float           inbound_dmg_recency;/* 1.0 fresh → 0 by ~1s, decays per frame */
+
     uint8_t         is_terminal;    /* 1 on death/level-change */
     uint8_t         terminal_reason;/* ML_TERMINAL_* */
     uint8_t         _pad[2];
@@ -184,8 +198,15 @@ int  ML_BotStep(int bot_slot, const ml_obs_t *obs, ml_action_t *act,
 
 /* Fire-and-forget obs send with no action wait. Used for terminal packets
    (death) where the harness will not reply; never blocks the server frame.
-   Returns 0 on send, -1 on error. */
+   Also phase 1 of two-phase lockstep (G_RunFrame pre-pass sends every ML
+   bot's obs before any bot blocks). Returns 0 on send, -1 on error. */
 int  ML_SendObsOnly(int bot_slot, const ml_obs_t *obs);
+
+/* Two-phase lockstep, phase 2: block up to timeout_ms for the action
+   answering the obs with this tick. Returns 0 on match, -1 on timeout
+   (act holds the previous action as fallback). */
+int  ML_RecvAction(int bot_slot, uint32_t tick, ml_action_t *act,
+                   int timeout_ms);
 
 /* Call on bot removal. Closes socket. */
 void ML_BotShutdown(int bot_slot);
