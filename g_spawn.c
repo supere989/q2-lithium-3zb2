@@ -550,6 +550,31 @@ void G_FindTeams (void)
 //WF
 }
 
+/* q2-ml-bot: opt-in, reproducible gameplay RNG for controlled experiments.
+ * Include the map and per-process level index so repeated rounds differ while
+ * an identical server/map sequence remains reproducible across launches. */
+static unsigned ml_seed_level_index;
+
+static unsigned ML_GameSeedForLevel(const char *mapname, unsigned level_index)
+{
+	const unsigned char *p = (const unsigned char *)mapname;
+	unsigned seed = (unsigned)strtoul(ml_game_seed->string, NULL, 10) ^ 2166136261u;
+	unsigned i;
+
+	while (*p)
+	{
+		seed ^= *p++;
+		seed *= 16777619u;
+	}
+	for (i = 0; i < sizeof(level_index); i++)
+	{
+		seed ^= (level_index >> (i * 8)) & 0xffu;
+		seed *= 16777619u;
+	}
+
+	return seed;
+}
+
 /*
 ==============
 SpawnEntities
@@ -583,6 +608,17 @@ void SpawnEntities (char *mapname, char *entities, char *spawnpoint)
 
 	strlcpy (level.mapname, mapname, sizeof(level.mapname));
 	strlcpy (game.spawnpoint, spawnpoint, sizeof(game.spawnpoint));
+
+	if (ml_enabled && ml_enabled->value && ml_game_seed && ml_game_seed->value >= 0)
+	{
+		unsigned effective_seed = ML_GameSeedForLevel(mapname, ml_seed_level_index);
+		unsigned base_seed = (unsigned)strtoul(ml_game_seed->string, NULL, 10);
+
+		srand(effective_seed);
+		gi.dprintf("ML: gameplay RNG seed base=%u effective=%u level=%u map=%s\n",
+			base_seed, effective_seed, ml_seed_level_index, mapname);
+		ml_seed_level_index++;
+	}
 
 	/* q2-ml-bot: load hook zone sidecar for this map */
 	if (ml_enabled && ml_enabled->value)
@@ -1101,4 +1137,3 @@ void SP_worldspawn (edict_t *ent)
 	memset(ExplIndex,0,sizeof(ExplIndex));
 	// 3ZB2
 }
-

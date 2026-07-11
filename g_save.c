@@ -238,6 +238,9 @@ void InitGame (void)
 	ml_bot_slot = gi.cvar ("ml_bot_slot", "1", CVAR_LATCH);
 	ml_port_base = gi.cvar ("ml_port_base", "27950", CVAR_LATCH);
 	ml_spectators_only = gi.cvar ("ml_spectators_only", "0", 0);
+	/* Optional deterministic gameplay RNG for controlled ML experiments.
+	   Negative preserves Lithium/Quake's normal RNG behavior. */
+	ml_game_seed = gi.cvar ("ml_game_seed", "-1", 0);
 	/* recv timeout in ms for the Python action reply.  Default 80 (8x server tick).
 	   For sv_timedemo training, drop to 5-10 so a slow Python doesn't bottleneck. */
 	ml_step_timeout = gi.cvar ("ml_step_timeout", "80", 0);

@@ -190,7 +190,9 @@ char *Mapqueue_GetMapName(void) {
 
 	if(newlist || mapqueue_pos->value == 0) {
 		int a, b, t;
-		srand((unsigned)time(NULL));
+		/* Preserve the explicit ML experiment seed when one is active. */
+		if (!ml_enabled || !ml_enabled->value || !ml_game_seed || ml_game_seed->value < 0)
+			srand((unsigned)time(NULL));
 
 		if(maps > MAX_MAPQUEUE)
 			maps = MAX_MAPQUEUE;
