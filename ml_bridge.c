@@ -169,16 +169,42 @@ int ML_RecvAction(int bot_slot, uint32_t tick, ml_action_t *act,
     ml_bot_sock_t *s = &g_socks[bot_slot];
     if (s->fd < 0) { *act = s->last_action; return -1; }
 
-    /* Self-arming lockstep: never block before the harness has answered
-       this socket at least once. ML bots spawn staggered at boot, and a
-       bot blocking its timeout every frame before the harness is even
-       listening delays every later spawn — with 4 ML slots the last bot
-       took ~60s to appear and the harness's 25s reset window starved. */
+    /* Self-arming lockstep: never block LONG before the harness has
+       answered this socket at least once. ML bots spawn staggered at
+       boot, and a bot blocking its FULL timeout every frame before the
+       harness is even listening delays every later spawn — with 4 ML
+       slots the last bot took ~60s to appear and the harness's 25s
+       reset window starved.
+
+       BUGFIX (2026-07-10): the original MSG_DONTWAIT (zero-wait) check
+       here meant this bootstrap path could only ever succeed if
+       Python's reply for THIS SAME frame's just-sent obs was already
+       sitting in the socket buffer at the exact instant this runs —
+       i.e. a real network+inference round-trip completing in zero
+       elapsed C instructions. In a many-bot training run there's
+       enough inter-bot processing time within one frame for that
+       race to occasionally resolve favorably; in a single/solo-bot
+       live deployment there is no such slack, so last_action_tick
+       NEVER left 0 and every action silently applied as the
+       zero-initialized fallback forever (bot "stuck at spawn").
+       Give this bootstrap check a short real timeout (bounded, so
+       staggered multi-bot startup still can't compound into the old
+       60s-delay problem) instead of a zero-wait check. */
     if (s->last_action_tick == 0) {
         ml_action_t incoming;
         ssize_t n;
-        while ((n = recv(s->fd, &incoming, sizeof(incoming), MSG_DONTWAIT)) >= 0
-               || errno == EINTR) {
+        struct timeval btv;
+        btv.tv_sec  = 0;
+        btv.tv_usec = 50000; /* 50ms — enough for a loopback round-trip,
+                                 bounded so N bots cold-starting can't
+                                 stack into a multi-second stall */
+        setsockopt(s->fd, SOL_SOCKET, SO_RCVTIMEO, &btv, sizeof(btv));
+        while (1) {
+            n = recv(s->fd, &incoming, sizeof(incoming), 0);
+            if (n < 0) {
+                if (errno == EINTR) continue;
+                break;                       /* timeout — not ready yet */
+            }
             if (n == sizeof(incoming) && incoming.magic == ML_ACT_MAGIC) {
                 s->last_action = incoming;
                 s->last_action_tick = incoming.tick;
