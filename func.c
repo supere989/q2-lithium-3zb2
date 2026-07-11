@@ -330,18 +330,27 @@ void Bot_Think (edict_t *self)
 
 		self->client->zc.route_trace = qfalse;
 
-		/* q2-ml-bot: dead bots never reach the ML branch below, so the
-		   terminal death obs (is_terminal=1, ML_TERMINAL_DEATH) must be
-		   sent from here. Fire-and-forget, once per death; the flag is
-		   cleared by the zgcl_t memset in PutBotInServer. The death
-		   reward itself is accumulated in player_die (p_client.c). */
-		if (self->client->zc.ml_enabled && !self->client->zc.ml_death_obs_sent)
+		/* q2-ml-bot: dead bots never reach the ML branch below, so async
+		   mode sends their pending death/intermission terminal here. In
+		   lockstep this also retries a failed G_RunFrame pre-pass send.
+		   Successful pre-pass sends have already set the matching flag,
+		   preventing the old same-tick duplicate terminal. */
+		if (self->client->zc.ml_enabled &&
+		    ((level.intermissiontime > 0 &&
+		      !self->client->zc.ml_intermission_obs_sent) ||
+		     (level.intermissiontime <= 0 &&
+		      !self->client->zc.ml_death_obs_sent)))
 		{
 			ml_obs_t obs;
 			int slot = (int)(self - g_edicts - 1);
 			ML_PackObs(self, &obs);
-			ML_SendObsOnly(slot, &obs);
-			self->client->zc.ml_death_obs_sent = 1;
+			if (ML_SendObsOnly(slot, &obs) == 0)
+			{
+				if (obs.terminal_reason == ML_TERMINAL_DEATH)
+					self->client->zc.ml_death_obs_sent = 1;
+				else if (obs.terminal_reason == ML_TERMINAL_INTERMISSION)
+					self->client->zc.ml_intermission_obs_sent = 1;
+			}
 		}
 
 		if(self->client->respawn_time <= level.time)
@@ -364,7 +373,9 @@ void Bot_Think (edict_t *self)
 			/* pipelined: send obs, apply newest cached action, never block */
 			ml_obs_t obs;
 			ML_PackObs(self, &obs);
-			ML_BotStep(slot, &obs, &act, 0);
+			if (ML_BotStep(slot, &obs, &act, 0) == 0 &&
+			    obs.terminal_reason == ML_TERMINAL_INTERMISSION)
+				self->client->zc.ml_intermission_obs_sent = 1;
 		}
 		else
 		{
@@ -549,11 +560,16 @@ void PutBotInServer (edict_t *ent)
 	{
 		int saved_ml = zc->ml_enabled;
 		int saved_sock = zc->ml_socket;
+		int saved_intermission_obs_sent = zc->ml_intermission_obs_sent;
 		memset (&client->zc,0,sizeof(zgcl_t));
 		zc->botindex = j;
 		zc->routeindex = i;
 		zc->ml_enabled = saved_ml;
 		zc->ml_socket  = saved_sock;
+		/* BeginIntermission deliberately leaves dead bots to their normal
+		   respawn path. Preserve this one-shot so a respawn while the
+		   scoreboard is active cannot emit a second map terminal. */
+		zc->ml_intermission_obs_sent = saved_intermission_obs_sent;
 	}
 
 	if (zc->ml_enabled)

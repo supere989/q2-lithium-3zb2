@@ -395,10 +395,29 @@ void ML_PackObs(edict_t *ent, ml_obs_t *obs)
 	zc->ml_reward_offense           = 0;
 	zc->ml_reward_survival          = 0;
 
+	/* PutBotInServer preserves the intermission one-shot across respawns,
+	   because dead bots can respawn while the scoreboard is up. Re-arm it
+	   only after the intermission has actually ended (normally on the next
+	   map), rather than on every respawn. */
+	if (level.intermissiontime <= 0)
+		zc->ml_intermission_obs_sent = 0;
+
 	if (level.intermissiontime > 0)
 	{
-		obs->is_terminal = 1;
-		obs->terminal_reason = ML_TERMINAL_INTERMISSION;
+		/* Intermission takes priority over death, and the explicit else is
+		   important: a dead bot must not fall through and emit a death
+		   terminal on every later intermission frame. The sender records
+		   success in ml_intermission_obs_sent after the UDP send succeeds. */
+		if (!zc->ml_intermission_obs_sent)
+		{
+			obs->is_terminal = 1;
+			obs->terminal_reason = ML_TERMINAL_INTERMISSION;
+		}
+		else
+		{
+			obs->is_terminal = 0;
+			obs->terminal_reason = ML_TERMINAL_NONE;
+		}
 	}
 	else if (ent->deadflag && !zc->ml_death_obs_sent)
 	{

@@ -125,6 +125,7 @@ typedef struct zgcl_s
 	int			ml_last_action_tick;
 	int			ml_last_action_ok;
 	int			ml_death_obs_sent;	/* terminal death obs sent once per death; cleared by respawn memset */
+	int			ml_intermission_obs_sent; /* terminal intermission obs sent once per intermission */
 	int			ml_timeout_count;
 } zgcl_t;
 

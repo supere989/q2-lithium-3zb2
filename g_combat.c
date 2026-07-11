@@ -409,6 +409,8 @@ void T_Damage (edict_t *targ, edict_t *inflictor, edict_t *attacker, vec3_t dir,
 	int			asave;
 	int			psave;
 	int			te_sparks;
+	int			reward_take;
+	qboolean	reward_target_alive;
 
 	//WF
 	float		adjusted_knockback;
@@ -416,6 +418,14 @@ void T_Damage (edict_t *targ, edict_t *inflictor, edict_t *attacker, vec3_t dir,
 
 	if (!targ->takedamage)
 		return;
+
+	/* ML rewards describe real state change, not Quake's sentinel overkill.
+	 * Telefrags/crushers commonly pass 100000 damage, and corpses can take
+	 * further gib damage. Feeding raw `take` into PPO produced 50k-100k
+	 * reward impulses and could credit repeated kills on an already-dead
+	 * target. Snapshot liveness before this hit and cap reward damage to the
+	 * health that can actually be removed. Game damage itself is unchanged. */
+	reward_target_alive = (targ->health > 0 && targ->deadflag == DEAD_NO);
 
 	//WF
 	damage = Rune_AdjustDamage(targ, attacker, damage);
@@ -579,6 +589,12 @@ void T_Damage (edict_t *targ, edict_t *inflictor, edict_t *attacker, vec3_t dir,
 // do the damage
 	if (take)
 	{
+		reward_take = reward_target_alive ? take : 0;
+		if (reward_take > targ->health)
+			reward_take = targ->health;
+		if (reward_take < 0)
+			reward_take = 0;
+
 		if ((targ->svflags & SVF_MONSTER) || (client))
 		{
 			SpawnDamage (TE_BLOOD, point, normal, take);
@@ -613,28 +629,28 @@ void T_Damage (edict_t *targ, edict_t *inflictor, edict_t *attacker, vec3_t dir,
 
 		/* q2-ml-bot: accumulate damage reward signals for ML-controlled bots */
 		if (attacker && attacker->client && attacker->client->zc.ml_enabled
-		    && attacker != targ)
+		    && attacker != targ && reward_take > 0)
 		{
-			attacker->client->zc.ml_reward_damage_dealt += (float)take;
+			attacker->client->zc.ml_reward_damage_dealt += (float)reward_take;
 			/* Offense payoff while holding an offense rune (strength|haste):
 			   the policy learns those runes are worth fighting with. */
 			if (attacker->rune & (RUNE_STRENGTH | RUNE_HASTE))
-				attacker->client->zc.ml_reward_offense += (float)take;
+				attacker->client->zc.ml_reward_offense += (float)reward_take;
 		}
 		if (targ->client && targ->client->zc.ml_enabled)
 		{
 			zgcl_t *tz = &targ->client->zc;
-			tz->ml_reward_damage_taken += (float)take;
+			tz->ml_reward_damage_taken += (float)reward_take;
 			/* Survival payoff: armour (and power-armour) that ate this hit
 			   is why you're still alive — credit the absorbed amount so the
 			   policy values holding armour under fire. */
-			if (asave > 0)
+			if (reward_target_alive && asave > 0)
 				tz->ml_reward_survival += (float)asave;
 			/* Inbound damage vector + "how hard" proximity weighting. A
 			   point-blank hit (dist→0) weights ~1; a cross-map rail (~ref)
 			   →0. prox channel = take × weight so close hard hits dominate
 			   the aversion signal the policy feels. */
-			if (attacker && attacker != targ)
+			if (reward_take > 0 && attacker && attacker->client && attacker != targ)
 			{
 				vec3_t to_atk;
 				float  d, w;
@@ -645,7 +661,7 @@ void T_Damage (edict_t *targ, edict_t *inflictor, edict_t *attacker, vec3_t dir,
 				tz->ml_inbound_dmg_frame = level.framenum;
 				w = 1.0f - (d / 1500.0f);   /* 1500u ≈ cross-room reference */
 				if (w < 0.05f) w = 0.05f; else if (w > 1.0f) w = 1.0f;
-				tz->ml_reward_damage_taken_prox += (float)take * w;
+				tz->ml_reward_damage_taken_prox += (float)reward_take * w;
 			}
 		}
 
@@ -654,7 +670,8 @@ void T_Damage (edict_t *targ, edict_t *inflictor, edict_t *attacker, vec3_t dir,
 			if ((targ->svflags & SVF_MONSTER) || (client))
 				targ->flags |= FL_NO_KNOCKBACK;
 			/* kill credit for ML attacker */
-			if (attacker && attacker->client && attacker->client->zc.ml_enabled
+			if (reward_target_alive && attacker && attacker->client
+			    && attacker->client->zc.ml_enabled
 			    && attacker != targ)
 				attacker->client->zc.ml_reward_kill += 1.0f;
 			Killed (targ, inflictor, attacker, take, point);

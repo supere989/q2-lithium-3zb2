@@ -517,7 +517,16 @@ void G_RunFrame (void)
 			{
 				ml_obs_t obs;
 				ML_PackObs(ent, &obs);
-				ML_SendObsOnly((int)(ent - g_edicts - 1), &obs);
+				if (ML_SendObsOnly((int)(ent - g_edicts - 1), &obs) == 0)
+				{
+					/* Consume a terminal one-shot only after the datagram was
+					   accepted. Bot_Think can retry a failed pre-pass send in
+					   the same frame for dead bots. */
+					if (obs.terminal_reason == ML_TERMINAL_DEATH)
+						ent->client->zc.ml_death_obs_sent = 1;
+					else if (obs.terminal_reason == ML_TERMINAL_INTERMISSION)
+						ent->client->zc.ml_intermission_obs_sent = 1;
+				}
 			}
 		}
 	}
@@ -562,6 +571,42 @@ void G_RunFrame (void)
 
 		G_RunEntity (ent);
 		G_CheckOutOfBoundsKill(ent);
+	}
+
+	/* Bot-only ML servers never enter the engine's normal ClientThink path
+	   that dismisses the scoreboard. Once every active ML bot has emitted
+	   its one intermission terminal, schedule ExitLevel for the next frame.
+	   Waiting for all successful sends keeps the terminal boundary aligned
+	   across slots; waiting until the next frame gives Python time to receive
+	   the final burst before the map is reloaded. */
+	if (level.intermissiontime > 0 && ml_enabled && ml_enabled->value)
+	{
+		int ml_count = 0;
+		qboolean all_ml_terminals_sent = qtrue;
+		qboolean has_non_bot_client = qfalse;
+
+		for (i = 1; i <= maxclients->value; i++)
+		{
+			ent = &g_edicts[i];
+			if (!ent->inuse || !ent->client)
+				continue;
+			if (!(ent->svflags & SVF_MONSTER))
+			{
+				has_non_bot_client = qtrue;
+				continue;
+			}
+			if (!ent->client->zc.ml_enabled)
+				continue;
+			ml_count++;
+			if (!ent->client->zc.ml_intermission_obs_sent)
+			{
+				all_ml_terminals_sent = qfalse;
+				break;
+			}
+		}
+
+		if (!has_non_bot_client && ml_count > 0 && all_ml_terminals_sent)
+			level.exitintermission = qtrue;
 	}
 
 	//WF
