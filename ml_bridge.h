@@ -16,6 +16,8 @@
 #define ML_BASE_PORT    27950   /* bot 0 = 27950, bot 1 = 27951, ... */
 #define ML_OBS_MAGIC    0x514D4C4F  /* "QMLO" */
 #define ML_ACT_MAGIC    0x514D4C41  /* "QMLA" */
+#define ML_TEACHER_MAGIC 0x5154335A /* "QT3Z" */
+#define ML_TEACHER_VERSION 1
 
 #define ML_MAX_ENTITIES 8       /* visible enemies/teammates in obs */
 #define ML_RAY_COUNT    16      /* directional depth-trace rays */
@@ -178,6 +180,21 @@ typedef struct {
     uint8_t     weapon;         /* 0=no-change, 1-9=select weapon */
 } ml_action_t;
 
+/* Passive 3ZB2 demonstration packet. Kept below the Tailscale MTU so one
+   legacy-bot tick is always one UDP datagram. */
+typedef struct {
+    uint32_t    magic;
+    uint32_t    version;
+    uint32_t    packet_size;
+    uint32_t    sequence;
+    uint32_t    tick;
+    uint32_t    bot_slot;
+    uint32_t    flags;       /* bit 0: grounded before action */
+    char        map_name[32];
+    ml_obs_t    obs;         /* state immediately before 3ZB2 acts */
+    ml_action_t action;      /* 3ZB2 result projected into ML action space */
+} ml_teacher_sample_t;
+
 
 /* ── C API (called from bot.c / Bot_Think) ───────────────────────────── */
 
@@ -210,6 +227,12 @@ int  ML_RecvAction(int bot_slot, uint32_t tick, ml_action_t *act,
 
 /* Call on bot removal. Closes socket. */
 void ML_BotShutdown(int bot_slot);
+
+/* Fire-and-forget legacy-bot teacher sample. Never waits or retries. */
+void ML_TeacherSend(struct edict_s *ent, const ml_obs_t *before,
+                    float yaw_before, float pitch_before,
+                    float velocity_z_before, int grounded_before,
+                    int hook_before);
 
 /* Fill obs rays from server-side traces. */
 void ML_FillRays(struct edict_s *ent, ml_obs_t *obs);

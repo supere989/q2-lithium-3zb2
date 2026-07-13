@@ -113,7 +113,13 @@ void P_DamageFeedback (edict_t *player)
 		count = 10;	// always make a visible effect
 
 	// play an apropriate pain sound
-	if ((level.time > player->pain_debounce_time) && !(player->flags & FL_GODMODE) && (client->invincible_framenum <= level.framenum))
+	/* 3ZB2 bots own gclient_t state but are intentionally not network clients
+	 * (pers.connected == false). A sexed "*pain" sound from such an edict is
+	 * encoded as entity 0, which makes Yamagi clients warn and discard it. */
+	if (client->pers.connected &&
+		(level.time > player->pain_debounce_time) &&
+		!(player->flags & FL_GODMODE) &&
+		(client->invincible_framenum <= level.framenum))
 	{
 		r = 1 + (rand()&1);
 		player->pain_debounce_time = level.time + 0.7;

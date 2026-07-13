@@ -248,6 +248,12 @@ void InitGame (void)
 	   apply the newest cached action instead (one-frame decision delay).
 	   Required when more than one ML slot shares a server. */
 	ml_async = gi.cvar ("ml_async", "0", 0);
+	/* Passive 3ZB2 imitation stream. UDP send is non-blocking and independent
+	   of the ML action bridge so teacher capture cannot stall a game frame. */
+	ml_teacher_enabled = gi.cvar ("ml_teacher_enabled", "0", 0);
+	ml_teacher_addr = gi.cvar ("ml_teacher_addr", "127.0.0.1", CVAR_LATCH);
+	ml_teacher_port = gi.cvar ("ml_teacher_port", "32511", CVAR_LATCH);
+	ml_teacher_stride = gi.cvar ("ml_teacher_stride", "1", 0);
 
 	// items
 	InitItems ();

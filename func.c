@@ -393,8 +393,22 @@ void Bot_Think (edict_t *self)
 	}
 	else
 	{
+		ml_obs_t teacher_obs;
+		float teacher_yaw = self->s.angles[YAW];
+		float teacher_pitch = self->s.angles[PITCH];
+		float teacher_velocity_z = self->velocity[2];
+		int teacher_grounded = self->groundentity != NULL;
+		int teacher_hook = self->client->hook_on || self->client->ctf_grapple != NULL;
+		int teacher_capture = ml_teacher_enabled && ml_teacher_enabled->value
+			&& level.intermissiontime <= 0;
+		if (teacher_capture)
+			ML_PackObs(self, &teacher_obs);
+
 		Bots_Move_NORM (self);
 		if(!self->inuse) return;			//removed botself
+		if (teacher_capture)
+			ML_TeacherSend(self, &teacher_obs, teacher_yaw, teacher_pitch,
+				teacher_velocity_z, teacher_grounded, teacher_hook);
 
 		ClientBeginServerFrame (self);
 	}

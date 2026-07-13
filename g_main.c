@@ -84,6 +84,10 @@ cvar_t  *ml_step_timeout;
 cvar_t  *ml_async;
 cvar_t  *ml_spectators_only;
 cvar_t  *ml_game_seed;
+cvar_t  *ml_teacher_enabled;
+cvar_t  *ml_teacher_addr;
+cvar_t  *ml_teacher_port;
+cvar_t  *ml_teacher_stride;
 static cvar_t *g_out_of_bounds_kill_z;
 
 void SpawnEntities (char *mapname, char *entities, char *spawnpoint);

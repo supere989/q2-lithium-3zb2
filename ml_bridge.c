@@ -34,6 +34,121 @@ typedef struct {
 
 static ml_bot_sock_t g_socks[MAX_BOTS_ML];
 static int           g_initialized = 0;
+static int           g_teacher_fd = -1;
+static uint32_t      g_teacher_sequence = 0;
+static struct sockaddr_in g_teacher_addr;
+
+static float ml_teacher_clamp(float value, float low, float high) {
+    return value < low ? low : (value > high ? high : value);
+}
+
+static float ml_teacher_angle_delta(float after, float before) {
+    float delta = after - before;
+    while (delta > 180.0f) delta -= 360.0f;
+    while (delta < -180.0f) delta += 360.0f;
+    return delta;
+}
+
+static uint8_t ml_teacher_weapon(edict_t *ent) {
+    const char *name;
+    if (!ent || !ent->client || !ent->client->pers.weapon)
+        return 0;
+    name = ent->client->pers.weapon->pickup_name;
+    if (!name) return 0;
+    if (!strcmp(name, "Blaster")) return 1;
+    if (!strcmp(name, "Shotgun")) return 2;
+    if (!strcmp(name, "Super Shotgun")) return 3;
+    if (!strcmp(name, "Machinegun")) return 4;
+    if (!strcmp(name, "Chaingun")) return 5;
+    if (!strcmp(name, "Grenade Launcher")) return 6;
+    if (!strcmp(name, "Rocket Launcher")) return 7;
+    if (!strcmp(name, "HyperBlaster")) return 8;
+    if (!strcmp(name, "Railgun")) return 9;
+    return 0;
+}
+
+static int ml_teacher_init(void) {
+    if (g_teacher_fd >= 0) return 0;
+    g_teacher_fd = socket(AF_INET, SOCK_DGRAM, 0);
+    if (g_teacher_fd < 0) return -1;
+    memset(&g_teacher_addr, 0, sizeof(g_teacher_addr));
+    g_teacher_addr.sin_family = AF_INET;
+    g_teacher_addr.sin_port = htons(ml_teacher_port
+        ? (uint16_t)ml_teacher_port->value : 32511);
+    if (!ml_teacher_addr ||
+        inet_pton(AF_INET, ml_teacher_addr->string, &g_teacher_addr.sin_addr) != 1) {
+        close(g_teacher_fd);
+        g_teacher_fd = -1;
+        return -1;
+    }
+    return 0;
+}
+
+void ML_TeacherSend(edict_t *ent, const ml_obs_t *before,
+                    float yaw_before, float pitch_before,
+                    float velocity_z_before, int grounded_before,
+                    int hook_before) {
+    ml_teacher_sample_t sample;
+    ml_action_t *action;
+    vec3_t forward, right;
+    vec3_t displacement, teacher_velocity;
+    int hook_after;
+    int stride;
+
+    if (!ent || !ent->client || !before || !ml_teacher_enabled ||
+        !ml_teacher_enabled->value || ent->client->zc.ml_enabled)
+        return;
+    stride = ml_teacher_stride ? (int)ml_teacher_stride->value : 1;
+    if (stride < 1) stride = 1;
+    if ((int)level.framenum % stride != 0 || ml_teacher_init() != 0)
+        return;
+
+    memset(&sample, 0, sizeof(sample));
+    sample.magic = ML_TEACHER_MAGIC;
+    sample.version = ML_TEACHER_VERSION;
+    sample.packet_size = (uint32_t)sizeof(sample);
+    sample.sequence = ++g_teacher_sequence;
+    sample.tick = (uint32_t)level.framenum;
+    sample.bot_slot = (uint32_t)(ent - g_edicts - 1);
+    sample.flags = grounded_before ? 1u : 0u;
+    strncpy(sample.map_name, level.mapname, sizeof(sample.map_name) - 1);
+    sample.obs = *before;
+
+    action = &sample.action;
+    action->magic = ML_ACT_MAGIC;
+    action->tick = sample.tick;
+    action->look_yaw = ml_teacher_clamp(
+        ml_teacher_angle_delta(ent->s.angles[YAW], yaw_before), -45.0f, 45.0f);
+    action->look_pitch = ml_teacher_clamp(
+        ml_teacher_angle_delta(ent->s.angles[PITCH], pitch_before), -30.0f, 30.0f);
+
+    AngleVectors(ent->s.angles, forward, right, NULL);
+    forward[2] = right[2] = 0.0f;
+    VectorNormalize(forward);
+    VectorNormalize(right);
+    /* 3ZB2 locomotion uses direct walkmove-style origin changes rather than
+       the player-command velocity that ML_ApplyAction consumes. Convert the
+       observed per-frame displacement back to world units/second first. */
+    VectorSubtract(ent->s.origin, before->self.pos, displacement);
+    VectorScale(displacement, 1.0f / FRAMETIME, teacher_velocity);
+    action->move_forward = ml_teacher_clamp(
+        DotProduct(teacher_velocity, forward) / 320.0f, -1.0f, 1.0f);
+    action->move_right = ml_teacher_clamp(
+        DotProduct(teacher_velocity, right) / 320.0f, -1.0f, 1.0f);
+    action->jump = (uint8_t)(
+        (grounded_before && !ent->groundentity) ||
+        ent->velocity[2] > velocity_z_before + 50.0f);
+    action->fire = (uint8_t)((ent->client->buttons & BUTTON_ATTACK) != 0);
+    hook_after = ent->client->hook_on || ent->client->ctf_grapple != NULL;
+    action->hook = (uint8_t)(
+        !hook_before && hook_after ? 1 :
+        hook_before && !hook_after ? 3 :
+        hook_after ? 2 : 0);
+    action->weapon = ml_teacher_weapon(ent);
+
+    sendto(g_teacher_fd, &sample, sizeof(sample), MSG_DONTWAIT,
+           (struct sockaddr *)&g_teacher_addr, sizeof(g_teacher_addr));
+}
 
 static void ml_global_init(void) {
     if (g_initialized) return;

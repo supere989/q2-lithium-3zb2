@@ -1289,6 +1289,10 @@ extern  cvar_t  *ml_port_base;
 extern  cvar_t  *ml_step_timeout;
 extern  cvar_t  *ml_async;
 extern  cvar_t  *ml_game_seed;
+extern  cvar_t  *ml_teacher_enabled;
+extern  cvar_t  *ml_teacher_addr;
+extern  cvar_t  *ml_teacher_port;
+extern  cvar_t  *ml_teacher_stride;
 
 #define GETTER		0
 #define	DEFENDER	1
