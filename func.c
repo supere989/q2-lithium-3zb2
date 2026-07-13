@@ -532,14 +532,47 @@ static void ML_GiveTrainingLoadout(edict_t *ent)
 	}
 }
 
+/* 3ZB2 bots are real client-slot edicts but deliberately leave
+   pers.connected false.  Spawn participation therefore keys off the entity's
+   live collision state, not its network-client registration flag. */
+static qboolean BotSpawnHullOccupied(edict_t *ent, vec3_t origin)
+{
+	edict_t *other;
+	vec3_t mins, maxs;
+	int i, axis;
+
+	VectorAdd(origin, ent->mins, mins);
+	VectorAdd(origin, ent->maxs, maxs);
+
+	for (i = 1; i <= maxclients->value; i++)
+	{
+		other = &g_edicts[i];
+		if (other == ent || !other->inuse || other->health <= 0 ||
+			other->solid == SOLID_NOT)
+			continue;
+
+		for (axis = 0; axis < 3; axis++)
+		{
+			if (maxs[axis] <= other->absmin[axis] ||
+				mins[axis] >= other->absmax[axis])
+				break;
+		}
+		if (axis == 3)
+			return qtrue;
+	}
+
+	return qfalse;
+}
+
 void PutBotInServer (edict_t *ent)
 {
 	edict_t		*touch[MAX_EDICTS];
 	int			i,j,entcount;
 	gitem_t		*item;
 	gclient_t	*client;
-	vec3_t	spawn_origin, spawn_angles;
+	vec3_t	spawn_origin, spawn_angles, drop_origin;
 	trace_t		rs_trace;
+	int			spawn_attempts, spawn_attempt_limit;
 
 
 	zgcl_t		*zc;		
@@ -639,12 +672,29 @@ void PutBotInServer (edict_t *ent)
 	ent->s.renderfx = 0;
 	ent->s.effects = 0;
 
-	SelectSpawnPoint (ent, spawn_origin, spawn_angles);
-	VectorCopy (spawn_origin, ent->s.origin);
+	spawn_attempt_limit = (int)maxclients->value * 4;
+	spawn_attempts = spawn_attempt_limit;
+	do
+	{
+		SelectSpawnPoint (ent, spawn_origin, spawn_angles);
+		VectorCopy (spawn_origin, ent->s.origin);
+		VectorCopy (spawn_origin, drop_origin);
+		drop_origin[2] -= 300;
+		rs_trace = gi.trace (ent->s.origin, ent->mins, ent->maxs,
+			drop_origin, ent, MASK_SOLID);
+		if (!rs_trace.allsolid)
+			VectorCopy (rs_trace.endpos, ent->s.origin);
+
+		/* Different nominal starts can settle onto the same lower surface.
+		   Check every live client-slot entity at the actual final hull without
+		   changing the legacy bot's link/solid/connected registration state. */
+	} while (BotSpawnHullOccupied(ent, ent->s.origin) && --spawn_attempts > 0);
+	if (spawn_attempts < spawn_attempt_limit)
+		gi.dprintf ("Bot spawn occupancy: slot %d rerolled %d time(s) at %.1f %.1f %.1f\n",
+			(int)(ent - g_edicts - 1), spawn_attempt_limit - spawn_attempts,
+			ent->s.origin[0], ent->s.origin[1], ent->s.origin[2]);
+	VectorCopy (ent->s.origin, ent->s.old_origin);
 	VectorCopy (spawn_angles, ent->s.angles);
-	spawn_origin[2] -= 300;
-	rs_trace = gi.trace(ent->s.origin,ent->mins,ent->maxs,spawn_origin,ent,MASK_SOLID);
-	if(!rs_trace.allsolid) VectorCopy (rs_trace.endpos, ent->s.origin);
 	VectorSet(ent->velocity,0,0,0);
 	ent->moveinfo.speed = 0;
 	ent->groundentity = rs_trace.ent;
@@ -691,9 +741,9 @@ void PutBotInServer (edict_t *ent)
 		gi.multicast (ent->s.origin, MULTICAST_PVS);
 	}
 	gi.linkentity (ent);
-	VectorAdd (spawn_origin, ent->mins, ent->absmin);
-	VectorAdd (spawn_origin, ent->maxs, ent->absmax);
-	entcount = gi.BoxEdicts ( ent->absmin ,ent->absmax,touch,MAX_EDICTS,AREA_SOLID);
+	VectorAdd (ent->s.origin, ent->mins, ent->absmin);
+	VectorAdd (ent->s.origin, ent->maxs, ent->absmax);
+	entcount = gi.BoxEdicts (ent->absmin, ent->absmax, touch, MAX_EDICTS, AREA_SOLID);
 	while (entcount-- > 0)
 	{
 		if(Q_stricmp (touch[entcount]->classname, "player") == 0)
