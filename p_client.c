@@ -893,6 +893,41 @@ edict_t *SelectDeathmatchSpawnPoint (void)
 		return SelectRandomDeathmatchSpawnPoint ();
 }
 
+/* Bots deliberately leave pers.connected false, but they still occupy real
+   client-slot edicts.  Spawn clearance must therefore use live collision
+   state rather than network registration so humans cannot spawn-telefrag a
+   bot that the stock random selector merely ranked as its third-closest. */
+static qboolean DeathmatchSpawnOccupied (edict_t *spawning, edict_t *spot)
+{
+	edict_t *other;
+	vec3_t origin, mins, maxs;
+	int i, axis;
+
+	VectorCopy (spot->s.origin, origin);
+	origin[2] += 9;
+	VectorSet (mins, origin[0] - 16, origin[1] - 16, origin[2] - 24);
+	VectorSet (maxs, origin[0] + 16, origin[1] + 16, origin[2] + 32);
+
+	for (i = 1; i <= maxclients->value; i++)
+	{
+		other = &g_edicts[i];
+		if (other == spawning || !other->inuse || other->health <= 0 ||
+			other->solid == SOLID_NOT)
+			continue;
+
+		for (axis = 0; axis < 3; axis++)
+		{
+			if (maxs[axis] <= other->absmin[axis] ||
+				mins[axis] >= other->absmax[axis])
+				break;
+		}
+		if (axis == 3)
+			return qtrue;
+	}
+
+	return qfalse;
+}
+
 
 edict_t *SelectCoopSpawnPoint (edict_t *ent)
 {
@@ -941,14 +976,44 @@ Chooses a player start, deathmatch start, coop start, etc
 void	SelectSpawnPoint (edict_t *ent, vec3_t origin, vec3_t angles)
 {
 	edict_t	*spot = NULL;
+	int		attempts, attempt_limit;
 
 	if (deathmatch->value)
+	{
 //ZOID
 		if (ctf->value)
 			spot = SelectCTFSpawnPoint(ent);
 		else
 //ZOID
-			spot = SelectDeathmatchSpawnPoint ();
+		{
+			edict_t *clear_spot;
+
+			attempt_limit = (int)maxclients->value * 4;
+			attempts = attempt_limit;
+			do
+			{
+				spot = SelectDeathmatchSpawnPoint ();
+			} while (spot && DeathmatchSpawnOccupied(ent, spot) && --attempts > 0);
+			/* Random retries preserve stock spawn variety.  Guarantee a clear
+			   result when one exists so bad luck can never reach KillBox. */
+			if (spot && DeathmatchSpawnOccupied(ent, spot))
+			{
+				clear_spot = NULL;
+				while ((clear_spot = G_Find (clear_spot, FOFS(classname),
+					"info_player_deathmatch")) != NULL)
+				{
+					if (!DeathmatchSpawnOccupied(ent, clear_spot))
+					{
+						spot = clear_spot;
+						break;
+					}
+				}
+			}
+			if (spot && attempts < attempt_limit)
+				gi.dprintf ("Global spawn occupancy: slot %d rerolled %d time(s)\n",
+					(int)(ent - g_edicts - 1), attempt_limit - attempts);
+		}
+	}
 	else if (coop->value)
 		spot = SelectCoopSpawnPoint (ent);
 
