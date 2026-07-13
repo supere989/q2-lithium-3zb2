@@ -48,6 +48,10 @@
 #define ML_ENTITY_PM_FREEZE    0x2000
 #define ML_ENTITY_GROUNDED     0x4000
 #define ML_ENTITY_PM_ON_GROUND 0x8000
+#define ML_ENTITY_PROTECTED    0x10000
+
+#define ML_FIRE_GATE_PROTECTED 0x01
+#define ML_FIRE_GATE_TARGET    0x02
 
 /* ── Observation sent game.so → Python ───────────────────────────────── */
 

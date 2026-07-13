@@ -18,6 +18,51 @@
 /* Lithium server framenum source */
 extern int sm_framenum;
 extern lvar_t *use_hook;
+
+#define ML_FIRE_CONE_DOT 0.85f
+
+/* Return true only for a target that can be acted on now.  LOS alone is not
+   engagement: the target must be alive, hostile, damageable, and reasonably
+   close to the bot's current forward aim. */
+static qboolean ML_HasEngageableTarget(edict_t *ent)
+{
+	edict_t *other;
+	vec3_t forward, toward;
+	float distance;
+	int i;
+
+	AngleVectors(ent->s.angles, forward, NULL, NULL);
+	VectorNormalize(forward);
+
+	for (i = 1; i <= maxclients->value; i++)
+	{
+		other = &g_edicts[i];
+		if (other == ent || !other->inuse || !other->client ||
+			other->deadflag || other->health <= 0 || other->solid == SOLID_NOT)
+			continue;
+		if (other->client->pers.spectator || other->client->resp.spectator ||
+			(other->lithium_flags & LITHIUM_OBSERVER))
+			continue;
+		if (ctf->value &&
+			other->client->resp.ctf_team == ent->client->resp.ctf_team)
+			continue;
+		if (other->safety_time > level.time ||
+			other->client->invincible_framenum > level.framenum)
+			continue;
+		if (ML_TargetExposure(ent, other) <= 0.0f)
+			continue;
+
+		VectorSubtract(other->s.origin, ent->s.origin, toward);
+		distance = VectorLength(toward);
+		if (distance <= 0.001f)
+			continue;
+		VectorScale(toward, 1.0f / distance, toward);
+		if (DotProduct(forward, toward) >= ML_FIRE_CONE_DOT)
+			return qtrue;
+	}
+
+	return qfalse;
+}
 void Use_Weapon(edict_t *ent, gitem_t *item);
 void Weapon_Hook_Fire(edict_t *ent);
 void Hook_Reset(edict_t *rhook);
@@ -176,10 +221,14 @@ static void ML_UpdateStuckGuard(edict_t *ent, const ml_action_t *act)
 		ent->velocity[1] += 360.0f * crandom();
 	}
 	else if (ml_stuck_ticks[slot] >= ML_STUCK_RESPAWN_TICKS) {
+		int protection_until = ent->client->invincible_framenum;
 		gi.dprintf("ML: slot %d stuck at %.1f %.1f %.1f; respawning\n",
 			slot, ent->s.origin[0], ent->s.origin[1], ent->s.origin[2]);
 		ml_stuck_ticks[slot] = 0;
 		PutBotInServer(ent);
+		/* This is a relocation, not a new life.  Do not let repeated stuck
+		   recovery renew spawn protection indefinitely. */
+		ent->client->invincible_framenum = protection_until;
 		VectorCopy(ent->s.origin, ml_last_origin[slot]);
 	}
 }
@@ -221,6 +270,9 @@ static uint32_t ML_DebugFlags(edict_t *ent, float visible)
 		flags |= ML_ENTITY_NOCLIENT;
 	if (ent->client && (ent->client->pers.spectator || ent->client->resp.spectator))
 		flags |= ML_ENTITY_SPECTATOR;
+	if (ent->safety_time > level.time ||
+		(ent->client && ent->client->invincible_framenum > level.framenum))
+		flags |= ML_ENTITY_PROTECTED;
 	if (ent->flags & FL_FLY)
 		flags |= ML_ENTITY_FLY;
 	if (ent->flags & FL_SWIM)
@@ -329,6 +381,11 @@ void ML_PackObs(edict_t *ent, ml_obs_t *obs)
 	ML_FillRays(ent, obs);
 	ML_FillHookZones(ent, obs);
 	ML_FillActionDebug(&obs->action_debug, zc);
+	if (ent->safety_time > level.time ||
+		ent->client->invincible_framenum > level.framenum)
+		obs->action_debug._pad |= ML_FIRE_GATE_PROTECTED;
+	if (ML_HasEngageableTarget(ent))
+		obs->action_debug._pad |= ML_FIRE_GATE_TARGET;
 
 	/* ── audio ────────────────────────────────────────────── */
 	if (level.sound_entity && level.sound_entity_framenum >= level.framenum - 30)
@@ -444,6 +501,13 @@ void ML_ApplyAction(edict_t *ent, const ml_action_t *act)
 	zgcl_t *zc = &ent->client->zc;
 	float forward_speed = 320.0f;
 	vec3_t forward, right;
+	qboolean fire_allowed;
+
+	if (ent->safety_time && ent->safety_time <= level.time)
+		ent->safety_time = 0;
+	fire_allowed = !ent->safety_time &&
+		ent->client->invincible_framenum <= level.framenum &&
+		ML_HasEngageableTarget(ent);
 
 	/* cache for any sub-tick logic */
 	zc->ml_move_forward = act->move_forward;
@@ -451,7 +515,7 @@ void ML_ApplyAction(edict_t *ent, const ml_action_t *act)
 	zc->ml_look_yaw     = act->look_yaw;
 	zc->ml_look_pitch   = act->look_pitch;
 	zc->ml_jump         = act->jump;
-	zc->ml_fire         = act->fire;
+	zc->ml_fire         = act->fire && fire_allowed;
 	zc->ml_hook         = act->hook;
 	zc->ml_weapon       = act->weapon;
 
@@ -495,7 +559,8 @@ void ML_ApplyAction(edict_t *ent, const ml_action_t *act)
 	}
 
 	/* ── fire ─────────────────────────────────────────────── */
-	if (act->fire && ent->client->pers.weapon && ent->client->weaponstate == WEAPON_READY)
+	if (act->fire && fire_allowed && ent->client->pers.weapon &&
+		ent->client->weaponstate == WEAPON_READY)
 	{
 		ent->client->buttons     |= BUTTON_ATTACK;
 		ent->client->latched_buttons |= BUTTON_ATTACK;
@@ -503,6 +568,7 @@ void ML_ApplyAction(edict_t *ent, const ml_action_t *act)
 	else
 	{
 		ent->client->buttons     &= ~BUTTON_ATTACK;
+		ent->client->latched_buttons &= ~BUTTON_ATTACK;
 	}
 
 	/* ── hook (Lithium grapple) ───────────────────────────── */

@@ -4,6 +4,9 @@
 #include "ml_bridge.h"
 #include "ml_obs.h"
 
+extern lvar_t *use_safety;
+extern lvar_t *safety_time;
+
 
 qboolean Get_YenPos(char *Buff,int *curr)
 {
@@ -720,6 +723,19 @@ void PutBotInServer (edict_t *ent)
 	ent->client->anim_end = FRAME_run6;
 	ent->deadflag = DEAD_NO;
 	ent->svflags &= ~SVF_DEADMONSTER;
+	/* Bots bypass Lithium_PutClientInServer.  Use the engine's frame-based
+	   invulnerability here: unlike Lithium's safety_time it does not depend
+	   on the human-client lifecycle to clear the protection later. */
+	ent->safety_time = 0;
+	if (use_safety && safety_time && use_safety->value && safety_time->value)
+	{
+		int protection_frames = (int)(safety_time->value / FRAMETIME + 0.5f);
+		if (protection_frames < 1)
+			protection_frames = 1;
+		ent->client->invincible_framenum = level.framenum + protection_frames;
+	}
+	else
+		ent->client->invincible_framenum = level.framenum;
 
 	zc->waitin_obj = NULL;
 	zc->first_target = NULL;
