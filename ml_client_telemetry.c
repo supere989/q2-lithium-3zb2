@@ -342,6 +342,14 @@ void ML_ClientTelemetryRecordCommand(edict_t *ent, usercmd_t *ucmd)
     zc->ml_look_pitch = intended_angles[PITCH] - ent->client->v_angle[PITCH];
     zc->ml_jump = ucmd->upmove > 0;
     zc->ml_fire = (ucmd->buttons & BUTTON_ATTACK) != 0;
+
+    /* A protocol client normally presses attack to leave the death screen.
+       The policy's attack bit is target-gated, though, and a dead player can
+       never have an engageable target.  Inject the lifecycle button only
+       after recording the authoritative policy echo so PPO admission remains
+       about the requested combat action, not this transport-side respawn. */
+    if (ent->deadflag && level.time > ent->client->respawn_time)
+        ucmd->buttons |= BUTTON_ATTACK;
 }
 
 void ML_ClientTelemetryFrame(void)
