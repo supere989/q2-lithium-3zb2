@@ -58,6 +58,7 @@ void P_DamageFeedback (edict_t *player)
 	float	realcount, count, kick;
 	vec3_t	v;
 	int		r, l;
+	char	*sound_name;
 	static	vec3_t	power_color = {0.0, 1.0, 0.0};
 	static	vec3_t	acolor = {1.0, 1.0, 1.0};
 	static	vec3_t	bcolor = {1.0, 0.0, 0.0};
@@ -113,9 +114,11 @@ void P_DamageFeedback (edict_t *player)
 		count = 10;	// always make a visible effect
 
 	// play an apropriate pain sound
-	/* 3ZB2 bots own gclient_t state but are intentionally not network clients
-	 * (pers.connected == false). A sexed "*pain" sound from such an edict is
-	 * encoded as entity 0, which makes Yamagi clients warn and discard it. */
+	/* 3ZB2 bots are not network clients, so they cannot source sexed sounds.
+	 * Network-native ML clients are real clients, but a listener can receive
+	 * their PHS sound before receiving them in a PVS-filtered entity snapshot.
+	 * Use the stock male sample directly for those clients so Yamagi does not
+	 * try to resolve the sound through an as-yet unknown entity state. */
 	if (client->pers.connected &&
 		(level.time > player->pain_debounce_time) &&
 		!(player->flags & FL_GODMODE) &&
@@ -131,7 +134,11 @@ void P_DamageFeedback (edict_t *player)
 			l = 75;
 		else
 			l = 100;
-		gi.sound (player, CHAN_VOICE, gi.soundindex(va("*pain%i_%i.wav", l, r)), 1, ATTN_NORM, 0);
+		if (Info_ValueForKey(client->pers.userinfo, "ml_client_id")[0])
+			sound_name = va("#players/male/pain%i_%i.wav", l, r);
+		else
+			sound_name = va("*pain%i_%i.wav", l, r);
+		gi.sound (player, CHAN_VOICE, gi.soundindex(sound_name), 1, ATTN_NORM, 0);
 	}
 
 	// the total alpha of the blend is always proportional to count

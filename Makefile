@@ -56,6 +56,8 @@ SHLIBEXT=so
 SHLIBCFLAGS=-fPIC
 SHLIBLDFLAGS=-shared
 
+.PHONY: clean depend test-pain-sound
+
 DO_CC=$(CC) $(CFLAGS) $(SHLIBCFLAGS) -o $@ -c $<
 
 #############################################################################
@@ -88,7 +90,16 @@ lithium/game$(ARCH).$(SHLIBEXT): $(GAME_OBJS)
 #############################################################################
 
 clean:
-	rm -f $(GAME_OBJS)
+	rm -f $(GAME_OBJS) tests/test_pain_sound tests/p_view.test.o
+
+test-pain-sound: tests/test_pain_sound
+	./tests/test_pain_sound
+
+tests/p_view.test.o: p_view.c g_local.h q_shared.h game.h m_player.h
+	$(CC) $(CFLAGS) -ffunction-sections -fdata-sections -o $@ -c p_view.c
+
+tests/test_pain_sound: tests/test_pain_sound.c tests/p_view.test.o
+	$(CC) $(CFLAGS) -Wl,--gc-sections -o $@ tests/test_pain_sound.c tests/p_view.test.o -lm
 
 depend:
 	gcc -MM $(GAME_OBJS:.o=.c)
