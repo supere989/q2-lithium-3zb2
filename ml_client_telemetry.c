@@ -31,8 +31,11 @@ static cvar_t *ml_client_telemetry;
 static cvar_t *ml_client_telemetry_port;
 static cvar_t *ml_client_telemetry_token;
 
-#define ML_HARNESS_IMPULSE_BASE 160
-#define ML_HARNESS_IMPULSE_COUNT 40
+#define ML_HARNESS_IMPULSE_BASE 16
+#define ML_HARNESS_ACTION_COUNT 40
+#define ML_HARNESS_GENERATION_COUNT 6
+#define ML_HARNESS_IMPULSE_COUNT \
+    (ML_HARNESS_ACTION_COUNT * ML_HARNESS_GENERATION_COUNT)
 
 static float ML_ClientAngleDelta(float left, float right)
 {
@@ -320,9 +323,13 @@ void ML_ClientTelemetryRecordCommand(edict_t *ent, usercmd_t *ucmd)
 {
     zgcl_t *zc;
     vec3_t intended_angles;
+    float look_yaw;
+    float look_pitch;
     int i;
     qboolean requested_fire;
+    qboolean same_frame;
     int requested_reliable;
+    int requested_action;
     if (!ucmd || (!ML_ClientTelemetryActive(ent) &&
         !ML_ClientTelemetryIdentified(ent)))
         return;
@@ -341,6 +348,11 @@ void ML_ClientTelemetryRecordCommand(edict_t *ent, usercmd_t *ucmd)
 
     requested_fire = (ucmd->buttons & BUTTON_ATTACK) != 0;
     zc = &ent->client->zc;
+    same_frame = zc->ml_last_action_ok &&
+        zc->ml_last_action_tick == level.framenum;
+    look_yaw = ML_ClientAngleDelta(
+        intended_angles[YAW], ent->client->v_angle[YAW]);
+    look_pitch = intended_angles[PITCH] - ent->client->v_angle[PITCH];
     zc->ml_fire_suppressed = requested_fire &&
         !ML_HasEngageableTarget(ent, intended_angles);
     if (zc->ml_fire_suppressed)
@@ -350,23 +362,40 @@ void ML_ClientTelemetryRecordCommand(edict_t *ent, usercmd_t *ucmd)
     zc->ml_last_action_ok = 1;
     zc->ml_move_forward = (float)ucmd->forwardmove / 320.0f;
     zc->ml_move_right = (float)ucmd->sidemove / 320.0f;
-    zc->ml_look_yaw = ML_ClientAngleDelta(
-        intended_angles[YAW], ent->client->v_angle[YAW]);
-    zc->ml_look_pitch = intended_angles[PITCH] - ent->client->v_angle[PITCH];
+    /* ClientThink may run multiple times while level.framenum is unchanged.
+       Preserve the complete decision delta instead of letting a later held
+       absolute-angle command overwrite the first nonzero look with zero. */
+    if (same_frame)
+    {
+        zc->ml_look_yaw = ML_ClientAngleDelta(
+            zc->ml_look_yaw + look_yaw, 0.0f);
+        zc->ml_look_pitch += look_pitch;
+    }
+    else
+    {
+        zc->ml_look_yaw = look_yaw;
+        zc->ml_look_pitch = look_pitch;
+    }
     zc->ml_jump = ucmd->upmove > 0;
     zc->ml_fire = (ucmd->buttons & BUTTON_ATTACK) != 0;
     requested_reliable = (int)ucmd->impulse - ML_HARNESS_IMPULSE_BASE;
     if (requested_reliable >= 0 &&
         requested_reliable < ML_HARNESS_IMPULSE_COUNT)
     {
-        zc->ml_hook = requested_reliable / 10;
-        zc->ml_weapon = requested_reliable % 10;
+        zc->ml_action_generation =
+            requested_reliable / ML_HARNESS_ACTION_COUNT;
+        requested_action = requested_reliable % ML_HARNESS_ACTION_COUNT;
+        zc->ml_hook = requested_action / 10;
+        zc->ml_weapon = requested_action % 10;
+        zc->ml_action_generation_valid = 1;
     }
     else
     {
         /* Missing attribution is a no-op, never a stale prior decision. */
         zc->ml_hook = 0;
         zc->ml_weapon = 0;
+        zc->ml_action_generation = 0;
+        zc->ml_action_generation_valid = 0;
     }
 
     /* A protocol client normally presses attack to leave the death screen.

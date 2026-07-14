@@ -58,6 +58,9 @@
 #define ML_FIRE_GATE_SUPPRESSED 0x04
 #define ML_HIT_STREAK_SHIFT 8
 #define ML_HIT_STREAK_MASK  0x0000FF00u
+#define ML_ACTION_GENERATION_SHIFT 16
+#define ML_ACTION_GENERATION_MASK  0x00070000u
+#define ML_ACTION_GENERATION_VALID 0x00080000u
 
 /* ── Observation sent game.so → Python ───────────────────────────────── */
 

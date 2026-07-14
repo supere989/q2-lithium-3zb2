@@ -7,7 +7,7 @@
 #include <stdint.h>
 #include "ml_bridge.h"
 
-#define ML_CLIENT_WIRE_VERSION 2u
+#define ML_CLIENT_WIRE_VERSION 3u
 #define ML_CLIENT_REGISTER_MAGIC 0x52434d51u /* "QMCR" */
 #define ML_CLIENT_ACK_MAGIC      0x41434d51u /* "QMCA" */
 #define ML_CLIENT_TELEM_MAGIC    0x54434d51u /* "QMCT" */

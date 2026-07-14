@@ -127,6 +127,8 @@ typedef struct zgcl_s
 	int			ml_fire_suppressed;	/* requested attack rejected by authoritative fire gate */
 	int			ml_hook;		/* 0=idle 1=fire 2=hold 3=release */
 	int			ml_weapon;
+	int			ml_action_generation;	/* modulo-six client decision identity */
+	int			ml_action_generation_valid;
 	int			ml_last_action_tick;
 	int			ml_last_action_ok;
 	int			ml_death_obs_sent;	/* terminal death obs sent once per death; cleared by respawn memset */
