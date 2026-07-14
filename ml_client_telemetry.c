@@ -326,8 +326,11 @@ void ML_ClientTelemetryRecordCommand(edict_t *ent, usercmd_t *ucmd)
     int i;
     qboolean requested_fire;
     qboolean same_frame;
+    qboolean same_decision;
+    qboolean requested_reliable_valid;
     int requested_reliable;
     int requested_action;
+    int requested_generation;
     if (!ucmd || (!ML_ClientTelemetryActive(ent) &&
         !ML_ClientTelemetryIdentified(ent)))
         return;
@@ -348,7 +351,15 @@ void ML_ClientTelemetryRecordCommand(edict_t *ent, usercmd_t *ucmd)
     zc = &ent->client->zc;
     same_frame = zc->ml_last_action_ok &&
         zc->ml_last_action_tick == level.framenum;
-    if (!same_frame)
+    requested_reliable = (int)ucmd->impulse - ML_HARNESS_IMPULSE_BASE;
+    requested_reliable_valid = requested_reliable >= 0 &&
+        requested_reliable < ML_HARNESS_IMPULSE_COUNT;
+    requested_generation = requested_reliable_valid
+        ? requested_reliable / ML_HARNESS_ACTION_COUNT : 0;
+    same_decision = same_frame && requested_reliable_valid &&
+        zc->ml_action_generation_valid &&
+        requested_generation == zc->ml_action_generation;
+    if (!same_decision)
     {
         zc->ml_look_base_yaw = ent->client->v_angle[YAW];
         zc->ml_look_base_pitch = ent->client->v_angle[PITCH];
@@ -371,12 +382,9 @@ void ML_ClientTelemetryRecordCommand(edict_t *ent, usercmd_t *ucmd)
     zc->ml_look_pitch = intended_angles[PITCH] - zc->ml_look_base_pitch;
     zc->ml_jump = ucmd->upmove > 0;
     zc->ml_fire = (ucmd->buttons & BUTTON_ATTACK) != 0;
-    requested_reliable = (int)ucmd->impulse - ML_HARNESS_IMPULSE_BASE;
-    if (requested_reliable >= 0 &&
-        requested_reliable < ML_HARNESS_IMPULSE_COUNT)
+    if (requested_reliable_valid)
     {
-        zc->ml_action_generation =
-            requested_reliable / ML_HARNESS_ACTION_COUNT;
+        zc->ml_action_generation = requested_generation;
         requested_action = requested_reliable % ML_HARNESS_ACTION_COUNT;
         zc->ml_hook = requested_action / 10;
         zc->ml_weapon = requested_action % 10;
