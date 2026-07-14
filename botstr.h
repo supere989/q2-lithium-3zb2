@@ -122,6 +122,8 @@ typedef struct zgcl_s
 	float		ml_move_right;
 	float		ml_look_yaw;
 	float		ml_look_pitch;
+	float		ml_look_base_yaw;	/* view at first ClientThink in this server frame */
+	float		ml_look_base_pitch;
 	int			ml_jump;
 	int			ml_fire;
 	int			ml_fire_suppressed;	/* requested attack rejected by authoritative fire gate */

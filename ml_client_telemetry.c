@@ -323,8 +323,6 @@ void ML_ClientTelemetryRecordCommand(edict_t *ent, usercmd_t *ucmd)
 {
     zgcl_t *zc;
     vec3_t intended_angles;
-    float look_yaw;
-    float look_pitch;
     int i;
     qboolean requested_fire;
     qboolean same_frame;
@@ -350,9 +348,11 @@ void ML_ClientTelemetryRecordCommand(edict_t *ent, usercmd_t *ucmd)
     zc = &ent->client->zc;
     same_frame = zc->ml_last_action_ok &&
         zc->ml_last_action_tick == level.framenum;
-    look_yaw = ML_ClientAngleDelta(
-        intended_angles[YAW], ent->client->v_angle[YAW]);
-    look_pitch = intended_angles[PITCH] - ent->client->v_angle[PITCH];
+    if (!same_frame)
+    {
+        zc->ml_look_base_yaw = ent->client->v_angle[YAW];
+        zc->ml_look_base_pitch = ent->client->v_angle[PITCH];
+    }
     zc->ml_fire_suppressed = requested_fire &&
         !ML_HasEngageableTarget(ent, intended_angles);
     if (zc->ml_fire_suppressed)
@@ -362,20 +362,13 @@ void ML_ClientTelemetryRecordCommand(edict_t *ent, usercmd_t *ucmd)
     zc->ml_last_action_ok = 1;
     zc->ml_move_forward = (float)ucmd->forwardmove / 320.0f;
     zc->ml_move_right = (float)ucmd->sidemove / 320.0f;
-    /* ClientThink may run multiple times while level.framenum is unchanged.
-       Preserve the complete decision delta instead of letting a later held
-       absolute-angle command overwrite the first nonzero look with zero. */
-    if (same_frame)
-    {
-        zc->ml_look_yaw = ML_ClientAngleDelta(
-            zc->ml_look_yaw + look_yaw, 0.0f);
-        zc->ml_look_pitch += look_pitch;
-    }
-    else
-    {
-        zc->ml_look_yaw = look_yaw;
-        zc->ml_look_pitch = look_pitch;
-    }
+    /* ClientThink may run many times while level.framenum is unchanged.
+       Record latest intended angle minus the frame's initial view. Summing
+       per-call deltas multiplies duplicate held usercmds; overwriting against
+       the changing current view lets a later duplicate erase the decision. */
+    zc->ml_look_yaw = ML_ClientAngleDelta(
+        intended_angles[YAW], zc->ml_look_base_yaw);
+    zc->ml_look_pitch = intended_angles[PITCH] - zc->ml_look_base_pitch;
     zc->ml_jump = ucmd->upmove > 0;
     zc->ml_fire = (ucmd->buttons & BUTTON_ATTACK) != 0;
     requested_reliable = (int)ucmd->impulse - ML_HARNESS_IMPULSE_BASE;
