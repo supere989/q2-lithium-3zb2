@@ -33,9 +33,14 @@ static cvar_t *ml_client_telemetry_token;
 
 #define ML_HARNESS_IMPULSE_BASE 16
 #define ML_HARNESS_ACTION_COUNT 40
-#define ML_HARNESS_GENERATION_COUNT 6
+#define ML_HARNESS_HIGH_GENERATION_COUNT 6
 #define ML_HARNESS_IMPULSE_COUNT \
-    (ML_HARNESS_ACTION_COUNT * ML_HARNESS_GENERATION_COUNT)
+    (ML_HARNESS_ACTION_COUNT * ML_HARNESS_HIGH_GENERATION_COUNT)
+#define ML_HARNESS_BUTTON_GENERATION_SHIFT 2
+#define ML_HARNESS_BUTTON_GENERATION_MASK 0x7C
+#define ML_HARNESS_LOW_GENERATION_COUNT 32
+#define ML_HARNESS_GENERATION_COUNT \
+    (ML_HARNESS_HIGH_GENERATION_COUNT * ML_HARNESS_LOW_GENERATION_COUNT)
 
 static float ML_ClientAngleDelta(float left, float right)
 {
@@ -330,6 +335,8 @@ void ML_ClientTelemetryRecordCommand(edict_t *ent, usercmd_t *ucmd)
     qboolean requested_reliable_valid;
     int requested_reliable;
     int requested_action;
+    int requested_generation_high;
+    int requested_generation_low;
     int requested_generation;
     if (!ucmd || (!ML_ClientTelemetryActive(ent) &&
         !ML_ClientTelemetryIdentified(ent)))
@@ -354,8 +361,16 @@ void ML_ClientTelemetryRecordCommand(edict_t *ent, usercmd_t *ucmd)
     requested_reliable = (int)ucmd->impulse - ML_HARNESS_IMPULSE_BASE;
     requested_reliable_valid = requested_reliable >= 0 &&
         requested_reliable < ML_HARNESS_IMPULSE_COUNT;
-    requested_generation = requested_reliable_valid
+    requested_generation_high = requested_reliable_valid
         ? requested_reliable / ML_HARNESS_ACTION_COUNT : 0;
+    requested_generation_low =
+        ((int)ucmd->buttons & ML_HARNESS_BUTTON_GENERATION_MASK) >>
+        ML_HARNESS_BUTTON_GENERATION_SHIFT;
+    requested_generation =
+        requested_generation_high * ML_HARNESS_LOW_GENERATION_COUNT +
+        requested_generation_low;
+    /* Private attestation bits never reach ordinary game button handling. */
+    ucmd->buttons &= ~ML_HARNESS_BUTTON_GENERATION_MASK;
     same_decision = same_frame && requested_reliable_valid &&
         zc->ml_action_generation_valid &&
         requested_generation == zc->ml_action_generation;

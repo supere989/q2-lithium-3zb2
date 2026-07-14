@@ -372,8 +372,8 @@ static void ML_FillActionDebug(ml_action_debug_t *dst, zgcl_t *zc)
 		dst->_pad |= ML_FIRE_GATE_SUPPRESSED;
 	if (zc->ml_action_generation_valid)
 	{
-		dst->_pad |= ML_ACTION_GENERATION_VALID;
-		dst->_pad |= ((uint32_t)zc->ml_action_generation <<
+		/* Zero means missing attribution, so store generation plus one. */
+		dst->_pad |= ((uint32_t)(zc->ml_action_generation + 1) <<
 			ML_ACTION_GENERATION_SHIFT) & ML_ACTION_GENERATION_MASK;
 	}
 	dst->_pad |= ((uint32_t)(zc->ml_hit_streak > 255
