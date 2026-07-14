@@ -1,0 +1,119 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:q2-ml:q2-fall-oracle-v1:response",
+  "title": "q2-fall-oracle v1 NDJSON response",
+  "oneOf": [
+    {
+      "allOf": [
+        {"$ref": "#/$defs/success"},
+        {
+          "type": "object",
+          "required": ["parameters", "constants", "source"],
+          "properties": {
+            "op": {"const": "identity"},
+            "parameters": {"$ref": "#/$defs/parameters"},
+            "constants": {"type": "string", "minLength": 1},
+            "source": {"$ref": "#/$defs/source"}
+          }
+        }
+      ],
+      "unevaluatedProperties": false
+    },
+    {
+      "allOf": [
+        {"$ref": "#/$defs/success"},
+        {
+          "type": "object",
+          "required": ["input", "suppression", "severity", "delta", "fall_value", "fall_time_offset", "emit_event", "set_fall_state", "set_pain_debounce", "damage", "apply_damage", "unmitigated_health_after", "unmitigated_lethal"],
+          "properties": {
+            "op": {"const": "evaluate"},
+            "input": {"$ref": "#/$defs/input"},
+            "suppression": {"enum": ["none", "not_player_model", "noclip", "hook_out", "airborne", "grapple", "underwater", "below_threshold"]},
+            "severity": {"enum": ["none", "footstep", "short", "fall", "far"]},
+            "delta": {"type": "number", "minimum": 0},
+            "fall_value": {"type": "number", "minimum": 0, "maximum": 40},
+            "fall_time_offset": {"type": "number", "minimum": 0},
+            "emit_event": {"type": "boolean"},
+            "set_fall_state": {"type": "boolean"},
+            "set_pain_debounce": {"type": "boolean"},
+            "damage": {"type": "integer"},
+            "apply_damage": {"type": "boolean"},
+            "unmitigated_health_after": {"type": "integer"},
+            "unmitigated_lethal": {"type": "boolean"}
+          }
+        }
+      ],
+      "unevaluatedProperties": false
+    },
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["ok", "id", "error", "detail"],
+      "properties": {
+        "ok": {"const": false},
+        "id": {"type": "string", "maxLength": 127},
+        "error": {"type": "string", "minLength": 1},
+        "detail": {"type": "string"}
+      }
+    }
+  ],
+  "$defs": {
+    "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "success": {
+      "type": "object",
+      "required": ["ok", "id", "op", "schema", "physics_identity", "tool_identity"],
+      "properties": {
+        "ok": {"const": true},
+        "id": {"type": "string", "maxLength": 127},
+        "op": {"enum": ["identity", "evaluate"]},
+        "schema": {"const": "q2-fall-oracle-v1"},
+        "physics_identity": {"$ref": "#/$defs/sha256"},
+        "tool_identity": {"$ref": "#/$defs/sha256"}
+      }
+    },
+    "parameters": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["fall_damagemod", "deathmatch", "dmflags"],
+      "properties": {
+        "fall_damagemod": {"type": "number", "minimum": 0, "maximum": 1000},
+        "deathmatch": {"type": "boolean"},
+        "dmflags": {"type": "integer", "minimum": 0, "maximum": 2147483647}
+      }
+    },
+    "input": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["old_velocity_z", "velocity_z", "grapple_release_elapsed", "fall_damagemod", "modelindex", "movetype", "grounded", "hook_out", "grapple_present", "grapple_state", "waterlevel", "deathmatch", "dmflags", "health"],
+      "properties": {
+        "old_velocity_z": {"type": "number", "minimum": -32768, "maximum": 32768},
+        "velocity_z": {"type": "number", "minimum": -32768, "maximum": 32768},
+        "grapple_release_elapsed": {"type": "number", "minimum": -86400, "maximum": 86400},
+        "fall_damagemod": {"type": "number", "minimum": 0, "maximum": 1000},
+        "modelindex": {"type": "integer", "minimum": 0, "maximum": 255},
+        "movetype": {"type": "integer", "minimum": 0, "maximum": 9},
+        "grounded": {"type": "boolean"}, "hook_out": {"type": "boolean"},
+        "grapple_present": {"type": "boolean"},
+        "grapple_state": {"type": "integer", "minimum": 0, "maximum": 2},
+        "waterlevel": {"type": "integer", "minimum": 0, "maximum": 3},
+        "deathmatch": {"type": "boolean"},
+        "dmflags": {"type": "integer", "minimum": 0, "maximum": 2147483647},
+        "health": {"type": "integer", "minimum": -1000000, "maximum": 1000000}
+      }
+    },
+    "source": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["shared_c_sha256", "shared_h_sha256", "integration_sha256", "game_header_sha256", "constants_sha256", "build_contract", "tool_closure_sha256"],
+      "properties": {
+        "shared_c_sha256": {"$ref": "#/$defs/sha256"},
+        "shared_h_sha256": {"$ref": "#/$defs/sha256"},
+        "integration_sha256": {"$ref": "#/$defs/sha256"},
+        "game_header_sha256": {"$ref": "#/$defs/sha256"},
+        "constants_sha256": {"$ref": "#/$defs/sha256"},
+        "build_contract": {"const": "lithium-linux-c99-o1-f32-shared-fall-v1"},
+        "tool_closure_sha256": {"$ref": "#/$defs/sha256"}
+      }
+    }
+  }
+}

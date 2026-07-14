@@ -3,6 +3,7 @@
 #include "g_local.h"
 #include "m_player.h"
 #include "bot.h"
+#include "ml_fall_physics.h"
 
 
 
@@ -496,89 +497,47 @@ P_FallingDamage
 */
 void P_FallingDamage (edict_t *ent)
 {
-	float	delta;
-	int		damage;
+	q2_fall_input_t input;
+	q2_fall_result_t result;
 	vec3_t	dir;
 
-	if (ent->s.modelindex != 255)
-		return;		// not in the player model
+	memset(&input, 0, sizeof(input));
+	input.old_velocity_z = ent->client->oldvelocity[2];
+	input.velocity_z = ent->velocity[2];
+	input.grapple_release_elapsed =
+		level.time - ent->client->ctf_grapplereleasetime;
+	input.damage_mod = fall_damagemod->value;
+	input.modelindex = ent->s.modelindex;
+	input.movetype = ent->movetype;
+	input.grounded = ent->groundentity != NULL;
+	input.hook_out = ent->client->hook_out != 0;
+	input.grapple_present = ent->client->ctf_grapple != NULL;
+	input.grapple_state = ent->client->ctf_grapplestate;
+	input.waterlevel = ent->waterlevel;
+	input.deathmatch = deathmatch->value != 0;
+	input.dmflags = (int)dmflags->value;
+	input.health = ent->health;
+	Q2_FallEvaluate(&input, &result);
 
-	if (ent->movetype == MOVETYPE_NOCLIP)
-		return;
-
-	//WF (Orange 2 Hook) fixes falling issue
-	if(ent->client->hook_out && !ent->groundentity)
-		return;
-	//WF
-
-	if ((ent->client->oldvelocity[2] < 0) && (ent->velocity[2] > ent->client->oldvelocity[2]) && (!ent->groundentity))
-	{
-		delta = ent->client->oldvelocity[2];
+	if (result.set_fall_state) {
+		ent->client->fall_value = result.fall_value;
+		ent->client->fall_time = level.time + Q2_FALL_TIME_SECONDS;
 	}
-	else
-	{
-		if (!ent->groundentity)
-			return;
-		delta = ent->velocity[2] - ent->client->oldvelocity[2];
-	}
-	delta = delta*delta * 0.0001;
-
-//ZOID
-	// never take damage if just release grapple or on grapple
-	if (level.time - ent->client->ctf_grapplereleasetime <= FRAMETIME * 2 ||
-		(ent->client->ctf_grapple && 
-		ent->client->ctf_grapplestate > CTF_GRAPPLE_STATE_FLY))
-		return;
-//ZOID
-
-	// never take falling damage if completely underwater
-	if (ent->waterlevel == 3)
-		return;
-	if (ent->waterlevel == 2)
-		delta *= 0.25;
-	if (ent->waterlevel == 1)
-		delta *= 0.5;
-
-	if (delta < 1)
-		return;
-
-	if (delta < 15)
-	{
-		ent->s.event = EV_FOOTSTEP;
-		return;
-	}
-
-	ent->client->fall_value = delta*0.5;
-	if (ent->client->fall_value > 40)
-		ent->client->fall_value = 40;
-	ent->client->fall_time = level.time + FALL_TIME;
-
-	if (delta > 30)
-	{
-		if (ent->health > 0)
-		{
-			if (delta >= 55)
-				ent->s.event = EV_FALLFAR;
-			else
-				ent->s.event = EV_FALL;
+	if (result.emit_event) {
+		switch (result.severity) {
+		case Q2_FALL_SEVERITY_FOOTSTEP: ent->s.event = EV_FOOTSTEP; break;
+		case Q2_FALL_SEVERITY_SHORT: ent->s.event = EV_FALLSHORT; break;
+		case Q2_FALL_SEVERITY_FALL: ent->s.event = EV_FALL; break;
+		case Q2_FALL_SEVERITY_FAR: ent->s.event = EV_FALLFAR; break;
+		default: break;
 		}
-		ent->pain_debounce_time = level.time;	// no normal pain sound
-		damage = (delta-30)/2;
-		if (damage < 1)
-			damage = 1;
-		VectorSet (dir, 0, 0, 1);
-
-		//WF
-		damage = damage * fall_damagemod->value;
-		//WF
-
-		if (!deathmatch->value || !((int)dmflags->value & DF_NO_FALLING) )
-			T_Damage (ent, world, world, dir, ent->s.origin, vec3_origin, damage, 0, 0, MOD_FALLING);
 	}
-	else
-	{
-		ent->s.event = EV_FALLSHORT;
-		return;
+	if (result.set_pain_debounce)
+		ent->pain_debounce_time = level.time;	// no normal pain sound
+	if (result.apply_damage) {
+		VectorSet (dir, 0, 0, 1);
+		T_Damage (ent, world, world, dir, ent->s.origin, vec3_origin,
+			result.damage, 0, 0, MOD_FALLING);
 	}
 }
 

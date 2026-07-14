@@ -57,7 +57,8 @@ SHLIBCFLAGS=-fPIC
 SHLIBLDFLAGS=-shared
 
 .PHONY: clean depend test-pain-sound hook-oracle test-hook-oracle \
-	test-hook-q2ded-parity test-hook-probe-boundary
+	test-hook-q2ded-parity test-hook-probe-boundary fall-oracle \
+	test-fall-physics test-falling-damage test-fall-oracle
 
 HOOK_ORACLE_BUILD=.build/hook-oracle
 HOOK_ORACLE=tools/q2-hook-oracle
@@ -67,6 +68,10 @@ HOOK_PARITY_SPEED?=900
 HOOK_PARITY_PULLSPEED?=1700
 HOOK_PARITY_SKY?=0
 HOOK_PARITY_MAXTIME?=5
+
+FALL_ORACLE_BUILD=.build/fall-oracle
+FALL_ORACLE=tools/q2-fall-oracle
+FALL_IDENTITY=$(FALL_ORACLE_BUILD)/fall_oracle_identity.h
 
 DO_CC=$(CC) $(CFLAGS) $(SHLIBCFLAGS) -o $@ -c $<
 
@@ -84,7 +89,7 @@ GAME_OBJS = \
 	g_target.o g_trigger.o g_turret.o g_utils.o g_weapon.o m_move.o \
 	g_monster.o g_ai.o \
 	p_hud.o p_trail.o p_view.o p_weapon.o p_menu.o q_shared.o g_svcmds.o g_chase.o \
-	lithium.o l_display.o l_fragtrak.o l_gslog.o l_hook.o ml_hook_physics.o \
+	lithium.o l_display.o l_fragtrak.o l_gslog.o l_hook.o ml_hook_physics.o ml_fall_physics.o \
 	l_mapqueue.o l_nocamp.o l_obit.o l_pack.o l_rune.o \
 	l_var.o l_menu.o l_admin.o l_vote.o l_net.o net.o \
 	g_ctf.o l_hscore.o zbotcheck.o strl.o \
@@ -100,8 +105,10 @@ lithium/game$(ARCH).$(SHLIBEXT): $(GAME_OBJS)
 #############################################################################
 
 clean:
-	rm -f $(GAME_OBJS) tests/test_pain_sound tests/p_view.test.o $(HOOK_ORACLE)
-	rm -rf $(HOOK_ORACLE_BUILD)
+	rm -f $(GAME_OBJS) tests/test_pain_sound tests/test_fall_physics \
+		tests/test_falling_damage tests/p_view.test.o tests/ml_fall_physics.test.o \
+		$(HOOK_ORACLE) $(FALL_ORACLE)
+	rm -rf $(HOOK_ORACLE_BUILD) $(FALL_ORACLE_BUILD)
 
 $(HOOK_ORACLE_BUILD):
 	mkdir -p $@
@@ -142,10 +149,49 @@ test-hook-probe-boundary: lithium/gamex86_64.so
 	@if strings lithium/gamex86_64.so | grep -q 'hook_oracle_probe'; then \
 		echo "normal module contains hook parity command" >&2; exit 1; fi
 
+$(FALL_ORACLE_BUILD):
+	mkdir -p $@
+
+$(FALL_IDENTITY): tools/gen_fall_identity.py tools/fall_oracle_contract.py \
+		ml_fall_physics.c ml_fall_physics.h p_view.c g_local.h g_ctf.h lithium.h \
+		q_shared.h Makefile tools/q2_fall_oracle.c tools/oracle_sha256.c \
+		tools/oracle_sha256.h tools/schemas/q2-fall-oracle-v1.schema.json \
+		tools/schemas/q2-fall-oracle-v1.response.schema.json | $(FALL_ORACLE_BUILD)
+	python3 tools/gen_fall_identity.py . $@
+
+$(FALL_ORACLE): tools/q2_fall_oracle.c tools/oracle_sha256.c \
+		tools/oracle_sha256.h ml_fall_physics.c ml_fall_physics.h $(FALL_IDENTITY)
+	$(CC) -std=c99 -O1 -g -Wall -Wextra -Wpedantic -fno-strict-aliasing \
+		-I$(FALL_ORACLE_BUILD) -I. tools/q2_fall_oracle.c tools/oracle_sha256.c \
+		ml_fall_physics.c -lm -o $@
+
+fall-oracle: $(FALL_ORACLE)
+
+tests/ml_fall_physics.test.o: ml_fall_physics.c ml_fall_physics.h
+	$(CC) -std=c99 -O1 -g -Wall -Wextra -Wpedantic -fno-strict-aliasing \
+		-ffunction-sections -fdata-sections -o $@ -c $<
+
+tests/test_fall_physics: tests/test_fall_physics.c tests/ml_fall_physics.test.o
+	$(CC) -std=c99 -O1 -g -Wall -Wextra -Wpedantic -fno-strict-aliasing \
+		-Wl,--gc-sections -o $@ $^ -lm
+
+test-fall-physics: tests/test_fall_physics
+	./tests/test_fall_physics
+
+tests/test_falling_damage: tests/test_falling_damage.c tests/p_view.test.o \
+		tests/ml_fall_physics.test.o
+	$(CC) $(CFLAGS) -Wl,--gc-sections -o $@ $^ -lm
+
+test-falling-damage: tests/test_falling_damage
+	./tests/test_falling_damage
+
+test-fall-oracle: $(FALL_ORACLE) test-fall-physics test-falling-damage
+	python3 -m unittest tests.test_fall_oracle -v
+
 test-pain-sound: tests/test_pain_sound
 	./tests/test_pain_sound
 
-tests/p_view.test.o: p_view.c g_local.h q_shared.h game.h m_player.h
+tests/p_view.test.o: p_view.c g_local.h q_shared.h game.h m_player.h ml_fall_physics.h
 	$(CC) $(CFLAGS) -ffunction-sections -fdata-sections -o $@ -c p_view.c
 
 tests/test_pain_sound: tests/test_pain_sound.c tests/p_view.test.o
@@ -178,7 +224,8 @@ g_weapon.o: g_weapon.c g_local.h q_shared.h game.h
 m_move.o: m_move.c g_local.h q_shared.h game.h
 p_hud.o: p_hud.c g_local.h q_shared.h game.h
 p_trail.o: p_trail.c g_local.h q_shared.h game.h
-p_view.o: p_view.c g_local.h q_shared.h game.h m_player.h
+p_view.o: p_view.c g_local.h q_shared.h game.h m_player.h ml_fall_physics.h
+ml_fall_physics.o: ml_fall_physics.c ml_fall_physics.h
 p_weapon.o: p_weapon.c g_local.h q_shared.h game.h m_player.h
 q_shared.o: q_shared.c q_shared.h
 g_svcmds.o: g_svcmds.c g_svcmds.c q_shared.h

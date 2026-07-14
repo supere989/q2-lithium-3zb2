@@ -1,0 +1,47 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:q2-ml:q2-fall-oracle-v1",
+  "title": "q2-fall-oracle v1 NDJSON request",
+  "oneOf": [
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["op"],
+      "properties": {
+        "id": {"type": "string", "maxLength": 127},
+        "op": {"const": "identity"},
+        "fall_damagemod": {"$ref": "#/$defs/damageMod"},
+        "deathmatch": {"type": "boolean"},
+        "dmflags": {"$ref": "#/$defs/dmflags"}
+      }
+    },
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["op", "old_velocity_z", "velocity_z", "grapple_release_elapsed", "fall_damagemod", "modelindex", "movetype", "grounded", "hook_out", "grapple_present", "grapple_state", "waterlevel", "deathmatch", "dmflags", "health"],
+      "properties": {
+        "id": {"type": "string", "maxLength": 127},
+        "op": {"const": "evaluate"},
+        "old_velocity_z": {"$ref": "#/$defs/velocity"},
+        "velocity_z": {"$ref": "#/$defs/velocity"},
+        "grapple_release_elapsed": {"type": "number", "minimum": -86400, "maximum": 86400},
+        "fall_damagemod": {"$ref": "#/$defs/damageMod"},
+        "modelindex": {"type": "integer", "minimum": 0, "maximum": 255},
+        "movetype": {"type": "integer", "minimum": 0, "maximum": 9},
+        "grounded": {"type": "boolean"},
+        "hook_out": {"type": "boolean"},
+        "grapple_present": {"type": "boolean"},
+        "grapple_state": {"type": "integer", "minimum": 0, "maximum": 2},
+        "waterlevel": {"type": "integer", "minimum": 0, "maximum": 3},
+        "deathmatch": {"type": "boolean"},
+        "dmflags": {"$ref": "#/$defs/dmflags"},
+        "health": {"type": "integer", "minimum": -1000000, "maximum": 1000000}
+      }
+    }
+  ],
+  "$defs": {
+    "velocity": {"type": "number", "minimum": -32768, "maximum": 32768},
+    "damageMod": {"type": "number", "minimum": 0, "maximum": 1000},
+    "dmflags": {"type": "integer", "minimum": 0, "maximum": 2147483647}
+  }
+}
