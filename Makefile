@@ -56,7 +56,11 @@ SHLIBEXT=so
 SHLIBCFLAGS=-fPIC
 SHLIBLDFLAGS=-shared
 
-.PHONY: clean depend test-pain-sound
+.PHONY: clean depend test-pain-sound hook-oracle test-hook-oracle test-hook-q2ded-parity
+
+HOOK_ORACLE_BUILD=.build/hook-oracle
+HOOK_ORACLE=tools/q2-hook-oracle
+HOOK_IDENTITY=$(HOOK_ORACLE_BUILD)/hook_oracle_identity.h
 
 DO_CC=$(CC) $(CFLAGS) $(SHLIBCFLAGS) -o $@ -c $<
 
@@ -74,7 +78,7 @@ GAME_OBJS = \
 	g_target.o g_trigger.o g_turret.o g_utils.o g_weapon.o m_move.o \
 	g_monster.o g_ai.o \
 	p_hud.o p_trail.o p_view.o p_weapon.o p_menu.o q_shared.o g_svcmds.o g_chase.o \
-	lithium.o l_display.o l_fragtrak.o l_gslog.o l_hook.o \
+	lithium.o l_display.o l_fragtrak.o l_gslog.o l_hook.o ml_hook_physics.o \
 	l_mapqueue.o l_nocamp.o l_obit.o l_pack.o l_rune.o \
 	l_var.o l_menu.o l_admin.o l_vote.o l_net.o net.o \
 	g_ctf.o l_hscore.o zbotcheck.o strl.o \
@@ -90,7 +94,32 @@ lithium/game$(ARCH).$(SHLIBEXT): $(GAME_OBJS)
 #############################################################################
 
 clean:
-	rm -f $(GAME_OBJS) tests/test_pain_sound tests/p_view.test.o
+	rm -f $(GAME_OBJS) tests/test_pain_sound tests/p_view.test.o $(HOOK_ORACLE)
+	rm -rf $(HOOK_ORACLE_BUILD)
+
+$(HOOK_ORACLE_BUILD):
+	mkdir -p $@
+
+$(HOOK_IDENTITY): tools/gen_hook_identity.py ml_hook_physics.c ml_hook_physics.h l_hook.c q_shared.c | $(HOOK_ORACLE_BUILD)
+	python3 tools/gen_hook_identity.py . $@
+
+$(HOOK_ORACLE): tools/q2_hook_oracle.c tools/oracle_sha256.c tools/oracle_sha256.h \
+		ml_hook_physics.c ml_hook_physics.h $(HOOK_IDENTITY)
+	$(CC) -std=c99 -O1 -g -Wall -Wextra -Wpedantic -fno-strict-aliasing \
+		-I$(HOOK_ORACLE_BUILD) -I. tools/q2_hook_oracle.c tools/oracle_sha256.c \
+		ml_hook_physics.c -lm -o $@
+
+hook-oracle: $(HOOK_ORACLE)
+
+test-hook-oracle: $(HOOK_ORACLE)
+	python3 -m unittest discover -s tests -p 'test_hook_oracle.py' -v
+
+test-hook-q2ded-parity: $(HOOK_ORACLE) lithium/gamex86_64.so
+	@test -n "$(Q2DED)" || { echo "Q2DED=/path/to/q2ded is required" >&2; exit 2; }
+	@test -n "$(PMOVE_ORACLE)" || { echo "PMOVE_ORACLE=/path/to/q2-pmove-oracle is required" >&2; exit 2; }
+	@test -n "$(CM_ORACLE)" || { echo "CM_ORACLE=/path/to/q2-cm-oracle is required" >&2; exit 2; }
+	python3 tests/run_q2ded_hook_parity.py --q2ded "$(Q2DED)" \
+		--pmove-oracle "$(PMOVE_ORACLE)" --cm-oracle "$(CM_ORACLE)"
 
 test-pain-sound: tests/test_pain_sound
 	./tests/test_pain_sound

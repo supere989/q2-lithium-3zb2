@@ -28,6 +28,7 @@
 // Code originally from Orange 2 Mod
 
 #include "g_local.h"
+#include "ml_hook_physics.h"
 
 lvar_t *hook_speed;
 lvar_t *hook_pullspeed;
@@ -102,18 +103,16 @@ qboolean Hook_Check(edict_t *self) {
 }
 
 void Hook_Service(edict_t *self) {
-	vec3_t	hook_dir;
+	const vec_t *enemy_origin;
 
 	// if hook should be dropped, just return
 	if(Hook_Check(self)) return;
 
 	// give the client some velocity ...
-	if(self->enemy->client)
-		_VectorSubtract(self->enemy->s.origin, self->owner->s.origin, hook_dir);
-	else
-		_VectorSubtract(self->s.origin, self->owner->s.origin, hook_dir);
-	VectorNormalize(hook_dir);
-	VectorScale(hook_dir, hook_pullspeed->value, self->owner->velocity);
+	enemy_origin = self->enemy->s.origin;
+	Q2_HookPullVelocity(self->owner->s.origin, self->s.origin,
+		enemy_origin, self->enemy->client != NULL, hook_pullspeed->value,
+		self->owner->velocity);
 
 //	SV_AddGravity(self->owner);
 }
@@ -163,22 +162,21 @@ void Hook_Track(edict_t *self) {
 // the hook has hit something.  what could it be?
 void Hook_Touch(edict_t *self, edict_t *other, cplane_t *plane, csurface_t *surf) {
 	vec3_t dir, normal;
+	q2_hook_touch_action_t touch_action;
 
-	// ignore hitting the person who launched us
-	if(other == self->owner)
-		return;
-
-	if(!self->owner || !self->owner->client)
-		return;
-	
-	// ignore hitting items/projectiles/etc.
-	if(other->solid == SOLID_NOT || other->solid == SOLID_TRIGGER || other->movetype == MOVETYPE_FLYMISSILE)
-		return;
-
-	if(surf && (surf->flags & SURF_SKY) && !hook_sky->value) {
+	touch_action = Q2_HookClassifyTouch(
+		other == self->owner,
+		self->owner && self->owner->client,
+		other->solid == SOLID_NOT || other->solid == SOLID_TRIGGER,
+		other->movetype == MOVETYPE_FLYMISSILE,
+		surf && (surf->flags & SURF_SKY),
+		hook_sky->value != 0);
+	if(touch_action == Q2_HOOK_TOUCH_RESET_SKY) {
 		Hook_Reset(self);
 		return;
 	}
+	if(touch_action != Q2_HOOK_TOUCH_ATTACH)
+		return;
 	
 	if(other->client) {		// we hit a player
 		// ignore hitting a teammate
@@ -310,7 +308,7 @@ void Hook_Fire(edict_t *owner, vec3_t start, vec3_t forward) {
 	hook->classname = "hook";		// this is a hook
 
 	vectoangles (forward, hook->s.angles);
-	VectorScale(forward, hook_speed->value, hook->velocity);
+	Q2_HookLaunchVelocity(forward, hook_speed->value, hook->velocity);
 
 	hook->touch = Hook_Touch;
 	hook->think = G_FreeEdict;
@@ -333,7 +331,7 @@ void Hook_Fire(edict_t *owner, vec3_t start, vec3_t forward) {
 	// from id's code.
 	tr = gi.trace(owner->s.origin, NULL, NULL, hook->s.origin, hook, MASK_SHOT);
 	if(tr.fraction < 1.0) {
-		VectorMA(hook->s.origin, -10, forward, hook->s.origin);
+		Q2_HookBackoffOrigin(hook->s.origin, forward, 10);
 		hook->touch(hook, tr.ent, NULL, NULL);
 	}
 }
@@ -379,3 +377,102 @@ void Weapon_Hook (edict_t *ent) {
 
 	Weapon_Generic(ent, 4, 8, 52, 55, pause_frames, fire_frames, Weapon_Hook_Fire);
 }
+
+#ifdef Q2_HOOK_PARITY_PROBE
+/* Isolated-q2ded-only probe. This symbol and command do not exist in normal
+ * game-module builds; the parity harness compiles it explicitly. */
+static trace_t Hook_ProbePMTrace(vec3_t start, vec3_t mins, vec3_t maxs,
+	vec3_t end)
+{
+	return gi.trace(start, mins, maxs, end, NULL, MASK_PLAYERSOLID);
+}
+
+void Hook_OracleParityProbe(void)
+{
+	vec3_t owner = {10, -20, 30};
+	vec3_t hook = {110, 30, 80};
+	vec3_t enemy = {-40, 80, 55};
+	vec3_t zero = {1, 2, 3};
+	vec3_t velocity;
+	vec3_t forward = {0.6f, 0, 0.8f};
+	vec3_t backoff = {24, 8, 14};
+	float distance;
+	q2_hook_touch_action_t action;
+	pmove_t pm;
+	trace_t direct_trace;
+	vec3_t trace_end = {0, 0, -64};
+	vec3_t stand_mins = {-16, -16, -24};
+	vec3_t stand_maxs = {16, 16, 32};
+
+	distance = Q2_HookPullVelocity(owner, hook, enemy, 0, 700, velocity);
+	gi.dprintf("Q2_HOOK_PARITY {\"id\":\"world-pull\",\"op\":\"pull\","
+		"\"owner_origin\":[10,-20,30],\"hook_origin\":[110,30,80],"
+		"\"hook_pullspeed\":700,\"server_distance\":%.9g,"
+		"\"server_velocity\":[%.9g,%.9g,%.9g]}\n",
+		distance, velocity[0], velocity[1], velocity[2]);
+	distance = Q2_HookPullVelocity(owner, hook, enemy, 1, 700, velocity);
+	gi.dprintf("Q2_HOOK_PARITY {\"id\":\"client-pull\",\"op\":\"pull\","
+		"\"owner_origin\":[10,-20,30],\"hook_origin\":[110,30,80],"
+		"\"enemy_origin\":[-40,80,55],\"enemy_is_client\":true,"
+		"\"hook_pullspeed\":700,\"server_distance\":%.9g,"
+		"\"server_velocity\":[%.9g,%.9g,%.9g]}\n",
+		distance, velocity[0], velocity[1], velocity[2]);
+	distance = Q2_HookPullVelocity(zero, zero, zero, 0, 700, velocity);
+	gi.dprintf("Q2_HOOK_PARITY {\"id\":\"zero-pull\",\"op\":\"pull\","
+		"\"owner_origin\":[1,2,3],\"hook_origin\":[1,2,3],"
+		"\"server_distance\":%.9g,\"server_velocity\":[%.9g,%.9g,%.9g]}\n",
+		distance, velocity[0], velocity[1], velocity[2]);
+	Q2_HookLaunchVelocity(forward, 900, velocity);
+	gi.dprintf("Q2_HOOK_PARITY {\"id\":\"launch\",\"op\":\"launch\","
+		"\"forward\":[0.600000024,0,0.800000012],"
+		"\"server_velocity\":[%.9g,%.9g,%.9g]}\n",
+		velocity[0], velocity[1], velocity[2]);
+	Q2_HookBackoffOrigin(backoff, forward, 10);
+	gi.dprintf("Q2_HOOK_PARITY {\"id\":\"backoff\",\"op\":\"backoff\","
+		"\"hook_origin\":[24,8,14],\"forward\":[0.600000024,0,0.800000012],"
+		"\"server_hook_origin\":[%.9g,%.9g,%.9g]}\n",
+		backoff[0], backoff[1], backoff[2]);
+	action = Q2_HookClassifyTouch(0, 1, 0, 0, 1, 0);
+	gi.dprintf("Q2_HOOK_PARITY {\"id\":\"sky\",\"op\":\"touch\","
+		"\"owner_has_client\":true,\"surface_is_sky\":true,"
+		"\"server_action\":\"%s\"}\n", Q2_HookTouchActionName(action));
+	action = Q2_HookClassifyTouch(0, 1, 0, 0, 0, 0);
+	gi.dprintf("Q2_HOOK_PARITY {\"id\":\"attach\",\"op\":\"touch\","
+		"\"owner_has_client\":true,\"server_action\":\"%s\"}\n",
+		Q2_HookTouchActionName(action));
+
+	/* Verify hook-driven collision and landing through q2ded's Pmove too. */
+	VectorSet(owner, 0, 0, 80);
+	VectorSet(hook, 0, 0, 0);
+	direct_trace = gi.trace(owner, stand_mins, stand_maxs, trace_end,
+		NULL, MASK_PLAYERSOLID);
+	Q2_HookPullVelocity(owner, hook, hook, 0, 700, velocity);
+	memset(&pm, 0, sizeof(pm));
+	pm.s.pm_type = PM_NORMAL;
+	pm.s.origin[0] = owner[0] * 8;
+	pm.s.origin[1] = owner[1] * 8;
+	pm.s.origin[2] = owner[2] * 8;
+	pm.s.velocity[0] = velocity[0] * 8;
+	pm.s.velocity[1] = velocity[1] * 8;
+	pm.s.velocity[2] = velocity[2] * 8;
+	pm.s.gravity = 800;
+	pm.cmd.msec = 100;
+	pm.trace = Hook_ProbePMTrace;
+	pm.pointcontents = gi.pointcontents;
+	gi.Pmove(&pm);
+	gi.dprintf("Q2_HOOK_PARITY {\"id\":\"hook-landing\",\"op\":\"hook_landing\","
+		"\"owner_origin\":[0,0,80],\"hook_origin\":[0,0,0],"
+		"\"hook_pullspeed\":700,\"gravity\":800,\"commands\":[{\"msec\":100}],"
+		"\"server_origin_fixed\":[%d,%d,%d],"
+		"\"server_velocity_fixed\":[%d,%d,%d],\"server_grounded\":%s,"
+		"\"server_mins\":[%.9g,%.9g,%.9g],\"server_maxs\":[%.9g,%.9g,%.9g],"
+		"\"server_direct_endpos\":[%.9g,%.9g,%.9g],\"server_direct_fraction\":%.9g,"
+		"\"server_direct_entnum\":%d}\n",
+		pm.s.origin[0], pm.s.origin[1], pm.s.origin[2],
+		pm.s.velocity[0], pm.s.velocity[1], pm.s.velocity[2],
+		pm.groundentity ? "true" : "false",
+		pm.mins[0], pm.mins[1], pm.mins[2], pm.maxs[0], pm.maxs[1], pm.maxs[2],
+		direct_trace.endpos[0], direct_trace.endpos[1], direct_trace.endpos[2],
+		direct_trace.fraction, direct_trace.ent ? (int)(direct_trace.ent - g_edicts) : -1);
+}
+#endif

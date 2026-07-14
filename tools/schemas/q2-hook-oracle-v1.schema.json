@@ -1,0 +1,35 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:q2-ml:q2-hook-oracle-v1",
+  "title": "q2-hook-oracle v1 NDJSON request",
+  "type": "object",
+  "required": ["op"],
+  "properties": {
+    "id": {"type": "string", "maxLength": 127},
+    "op": {"enum": ["identity", "launch", "pull", "touch", "backoff"]},
+    "hook_speed": {"type": "number", "minimum": 0},
+    "hook_pullspeed": {"type": "number", "minimum": 0},
+    "hook_sky": {"type": "boolean"},
+    "hook_maxtime": {"type": "number", "minimum": 0},
+    "forward": {"$ref": "#/$defs/vec3"},
+    "owner_origin": {"$ref": "#/$defs/vec3"},
+    "hook_origin": {"$ref": "#/$defs/vec3"},
+    "enemy_origin": {"$ref": "#/$defs/vec3"},
+    "enemy_is_client": {"type": "boolean"},
+    "prior_velocity": {"$ref": "#/$defs/vec3"},
+    "target_is_owner": {"type": "boolean"},
+    "owner_has_client": {"type": "boolean"},
+    "target_is_nonblocking": {"type": "boolean"},
+    "target_is_flymissile": {"type": "boolean"},
+    "surface_is_sky": {"type": "boolean"},
+    "distance": {"type": "number", "minimum": 0}
+  },
+  "$defs": {
+    "vec3": {
+      "type": "array",
+      "prefixItems": [{"type": "number"}, {"type": "number"}, {"type": "number"}],
+      "minItems": 3,
+      "maxItems": 3
+    }
+  }
+}

@@ -333,6 +333,9 @@ void Hook_Track(edict_t *self);
 void Hook_Touch(edict_t *self, edict_t *other, cplane_t *plane, csurface_t *surf);
 void Hook_Fire(edict_t *owner, vec3_t start, vec3_t forward);
 void Weapon_Hook_Fire(edict_t *ent);
+#ifdef Q2_HOOK_PARITY_PROBE
+void Hook_OracleParityProbe(void);
+#endif
 void Weapon_Hook(edict_t *ent);
 
 // l_menu.c

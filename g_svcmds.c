@@ -435,6 +435,10 @@ void	ServerCommand (void)
 		DebugSpawnCommand (gi.argc() <= 2 ? 1 : atoi (gi.argv(2)));
 	else if (Q_stricmp (cmd, "ml_rotate") == 0)
 		MLRotateCommand ();
+#ifdef Q2_HOOK_PARITY_PROBE
+	else if (Q_stricmp (cmd, "hook_oracle_probe") == 0)
+		Hook_OracleParityProbe ();
+#endif
 	else if (Q_stricmp (cmd, "addip") == 0)
 		SVCmd_AddIP_f ();
 	else if (Q_stricmp (cmd, "removeip") == 0)
