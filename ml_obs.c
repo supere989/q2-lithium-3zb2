@@ -345,14 +345,19 @@ void ML_PackObs(edict_t *ent, ml_obs_t *obs)
 	vec3_t    rel;
 	vec3_t    rel_local;
 	vec3_t    forward, right, up;
+	vec3_t    view_angles;
 	zgcl_t    *zc = &ent->client->zc;
 
 	memset(obs, 0, sizeof(*obs));
 	obs->magic    = ML_OBS_MAGIC;
 	obs->tick     = (uint32_t)level.framenum;
 	obs->bot_slot = (uint32_t)(ent - g_edicts - 1);
-	obs->yaw      = ent->s.angles[YAW];
-	obs->pitch    = ent->s.angles[PITCH];
+	/* s.angles[PITCH] is the Quake network-model pose and is deliberately
+	   client->v_angle[PITCH] / 3.  The policy, local target basis, and fire
+	   gate must all use the full-resolution player view instead. */
+	VectorCopy(ent->client->v_angle, view_angles);
+	obs->yaw      = view_angles[YAW];
+	obs->pitch    = view_angles[PITCH];
 
 	/* ── self ──────────────────────────────────────────────── */
 	VectorCopy(ent->s.origin,   obs->self.pos);
@@ -368,7 +373,7 @@ void ML_PackObs(edict_t *ent, ml_obs_t *obs)
 	ML_FillDebugIdentity(&obs->self_debug, ent, 1.0f);
 
 	/* ── visible entities (other clients only for now) ─────── */
-	AngleVectors(ent->s.angles, forward, right, up);
+	AngleVectors(view_angles, forward, right, up);
 	n = 0;
 	for (i = 1; i <= maxclients->value && n < ML_MAX_ENTITIES; i++)
 	{
