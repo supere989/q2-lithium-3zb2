@@ -402,6 +402,46 @@ qboolean CheckTeamDamage (edict_t *targ, edict_t *attacker)
 	return qfalse;
 }
 
+#define ML_HIT_CONTACT_FRAMES 30
+#define ML_HIT_STREAK_STEP    0.25f
+#define ML_HIT_STREAK_CAP     1.5f
+
+/* Advance one attacker's focus chain and return the bonus multiplier for this
+ * hit. The first hit establishes contact and receives no extra reward. A kill
+ * receives the multiplier it earned, then clears the chain so an edict slot
+ * reused by a later player cannot inherit it. */
+static float ML_HitStreakBonus(zgcl_t *zc, int target_edict, qboolean killed)
+{
+	float multiplier;
+	int frame_delta;
+
+	frame_delta = level.framenum - zc->ml_last_hit_frame;
+	if (zc->ml_hit_target_edict == target_edict &&
+		zc->ml_last_hit_frame > 0 && frame_delta >= 0 &&
+		frame_delta <= ML_HIT_CONTACT_FRAMES)
+	{
+		zc->ml_hit_streak++;
+	}
+	else
+	{
+		zc->ml_hit_target_edict = target_edict;
+		zc->ml_hit_streak = 1;
+	}
+	zc->ml_last_hit_frame = level.framenum;
+
+	multiplier = ML_HIT_STREAK_STEP * (float)(zc->ml_hit_streak - 1);
+	if (multiplier > ML_HIT_STREAK_CAP)
+		multiplier = ML_HIT_STREAK_CAP;
+
+	if (killed)
+	{
+		zc->ml_hit_target_edict = 0;
+		zc->ml_hit_streak = 0;
+		zc->ml_last_hit_frame = 0;
+	}
+	return multiplier;
+}
+
 void T_Damage (edict_t *targ, edict_t *inflictor, edict_t *attacker, vec3_t dir, vec3_t point, vec3_t normal, int damage, int knockback, int dflags, int mod)
 {
 	gclient_t	*client;
@@ -633,11 +673,17 @@ void T_Damage (edict_t *targ, edict_t *inflictor, edict_t *attacker, vec3_t dir,
 		    (attacker->client->zc.ml_enabled || ML_ClientTelemetryActive(attacker))
 		    && attacker != targ && reward_take > 0)
 		{
-			attacker->client->zc.ml_reward_damage_dealt += (float)reward_take;
+			zgcl_t *az = &attacker->client->zc;
+			float focus_multiplier = ML_HitStreakBonus(
+				az, (int)(targ - g_edicts), targ->health <= 0);
+			az->ml_reward_damage_dealt += (float)reward_take;
+			/* Reward sustained, actionable engagement. Target switches and
+			   gaps over three seconds restart at the unbonused first hit. */
+			az->ml_reward_offense += (float)reward_take * focus_multiplier;
 			/* Offense payoff while holding an offense rune (strength|haste):
-			   the policy learns those runes are worth fighting with. */
+			   this remains additive to the same-target focus bonus. */
 			if (attacker->rune & (RUNE_STRENGTH | RUNE_HASTE))
-				attacker->client->zc.ml_reward_offense += (float)reward_take;
+				az->ml_reward_offense += (float)reward_take;
 		}
 		if (targ->client &&
 		    (targ->client->zc.ml_enabled || ML_ClientTelemetryActive(targ)))

@@ -52,6 +52,7 @@
 
 #define ML_FIRE_GATE_PROTECTED 0x01
 #define ML_FIRE_GATE_TARGET    0x02
+#define ML_FIRE_GATE_SUPPRESSED 0x04
 
 /* ── Observation sent game.so → Python ───────────────────────────────── */
 
@@ -140,7 +141,7 @@ typedef struct {
     /* q2-ml-bot extended reward channels — always sent, consumed by both
        runs' reward shaping (never part of the policy input vector). */
     float           reward_damage_taken_prox; /* hit hardness: take × proximity */
-    float           reward_offense;           /* offense payoff w/ strength|haste */
+    float           reward_offense;           /* offense-rune + same-target focus payoff */
     float           reward_survival;          /* recovery payoff w/ regen|vampire */
 
     /* q2-ml-bot extended observation block — always sent. Appended to the

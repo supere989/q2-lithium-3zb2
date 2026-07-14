@@ -1832,7 +1832,6 @@ void ClientThink (edict_t *ent, usercmd_t *ucmd)
 
 	level.current_entity = ent;
 	client = ent->client;
-	ML_ClientTelemetryRecordCommand(ent, ucmd);
 
 	//WF
 	/*
@@ -1849,6 +1848,10 @@ void ClientThink (edict_t *ent, usercmd_t *ucmd)
 
 	if(Lithium_ClientThink(ent, ucmd))
 		return;
+	/* Lithium may consume or clear attack for observer/spawn-protection state.
+	   Apply the authenticated ML route's target gate afterwards so the action
+	   echo records the command the weapon path can actually execute. */
+	ML_ClientTelemetryRecordCommand(ent, ucmd);
 	//WF
 
 	pm_passent = ent;

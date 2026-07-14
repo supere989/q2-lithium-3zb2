@@ -114,6 +114,20 @@ static qboolean ML_ClientIdEqual(const char *left, const char *right)
         left_len == right_len && memcmp(left, right, left_len) == 0;
 }
 
+static qboolean ML_ClientTelemetryIdentified(edict_t *ent)
+{
+    char *client_id;
+    size_t length;
+
+    if (!ent || !ent->client)
+        return qfalse;
+    client_id = Info_ValueForKey(ent->client->pers.userinfo, "ml_client_id");
+    if (!client_id)
+        return qfalse;
+    length = strnlen(client_id, ML_CLIENT_ID_SIZE);
+    return length > 0 && length < ML_CLIENT_ID_SIZE ? qtrue : qfalse;
+}
+
 static qboolean ML_ClientTokenEqual(const char *provided)
 {
     const char *expected;
@@ -294,15 +308,38 @@ void ML_ClientTelemetryClientDisconnected(edict_t *ent)
 void ML_ClientTelemetryRecordCommand(edict_t *ent, usercmd_t *ucmd)
 {
     zgcl_t *zc;
-    if (!ML_ClientTelemetryActive(ent) || !ucmd)
+    vec3_t intended_angles;
+    int i;
+    qboolean requested_fire;
+    if (!ucmd || (!ML_ClientTelemetryActive(ent) &&
+        !ML_ClientTelemetryIdentified(ent)))
         return;
+
+    for (i = 0; i < 3; i++)
+    {
+        int16_t packed = (int16_t)(ucmd->angles[i] +
+            ent->client->ps.pmove.delta_angles[i]);
+        intended_angles[i] = SHORT2ANGLE(packed);
+    }
+    if (intended_angles[PITCH] > 89.0f)
+        intended_angles[PITCH] = 89.0f;
+    if (intended_angles[PITCH] < -89.0f)
+        intended_angles[PITCH] = -89.0f;
+    intended_angles[ROLL] = 0.0f;
+
+    requested_fire = (ucmd->buttons & BUTTON_ATTACK) != 0;
     zc = &ent->client->zc;
+    zc->ml_fire_suppressed = requested_fire &&
+        !ML_HasEngageableTarget(ent, intended_angles);
+    if (zc->ml_fire_suppressed)
+        ucmd->buttons &= ~BUTTON_ATTACK;
+
     zc->ml_last_action_tick = level.framenum;
     zc->ml_last_action_ok = 1;
     zc->ml_move_forward = (float)ucmd->forwardmove / 320.0f;
     zc->ml_move_right = (float)ucmd->sidemove / 320.0f;
-    zc->ml_look_yaw = SHORT2ANGLE(ucmd->angles[YAW]) - ent->s.angles[YAW];
-    zc->ml_look_pitch = SHORT2ANGLE(ucmd->angles[PITCH]) - ent->s.angles[PITCH];
+    zc->ml_look_yaw = intended_angles[YAW] - ent->client->v_angle[YAW];
+    zc->ml_look_pitch = intended_angles[PITCH] - ent->client->v_angle[PITCH];
     zc->ml_jump = ucmd->upmove > 0;
     zc->ml_fire = (ucmd->buttons & BUTTON_ATTACK) != 0;
 }

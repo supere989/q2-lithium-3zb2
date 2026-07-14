@@ -106,8 +106,11 @@ typedef struct zgcl_s
 	float		ml_reward_hook;
 	/* q2-ml-bot extended reward channels (always accumulated; both runs) */
 	float		ml_reward_damage_taken_prox;	/* damage_taken weighted by attacker proximity */
-	float		ml_reward_offense;		/* damage dealt while holding strength/haste */
+	float		ml_reward_offense;		/* offense-rune damage + escalating same-target hits */
 	float		ml_reward_survival;		/* health recovered while holding regen/vampire */
+	int			ml_hit_target_edict;		/* current focus target, or zero */
+	int			ml_hit_streak;			/* consecutive damaging hits on that target */
+	int			ml_last_hit_frame;		/* frame of most recent qualifying hit */
 	/* inbound damage vector (most recent significant hit, decays each frame) */
 	float		ml_inbound_dmg_dir[3];		/* unit vector toward the attacker */
 	float		ml_inbound_dmg_dist;		/* distance to that attacker, -1 if none */
@@ -120,6 +123,7 @@ typedef struct zgcl_s
 	float		ml_look_pitch;
 	int			ml_jump;
 	int			ml_fire;
+	int			ml_fire_suppressed;	/* requested attack rejected by authoritative fire gate */
 	int			ml_hook;		/* 0=idle 1=fire 2=hold 3=release */
 	int			ml_weapon;
 	int			ml_last_action_tick;

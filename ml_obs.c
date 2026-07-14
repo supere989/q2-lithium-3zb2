@@ -19,32 +19,50 @@
 extern int sm_framenum;
 extern lvar_t *use_hook;
 
-#define ML_FIRE_CONE_DOT 0.85f
+#define ML_FIRE_YAW_DEGREES   14.0f
+#define ML_FIRE_PITCH_DEGREES 16.0f
+
+static float ML_AngleDelta(float left, float right)
+{
+	float delta = anglemod(left - right);
+	if (delta > 180.0f)
+		delta -= 360.0f;
+	return delta;
+}
 
 /* Return true only for a target that can be acted on now.  LOS alone is not
-   engagement: the target must be alive, hostile, damageable, and reasonably
-   close to the bot's current forward aim. */
-static qboolean ML_HasEngageableTarget(edict_t *ent)
+   engagement: the target must be alive, hostile, damageable, unprotected, and
+   aligned with the supplied full-resolution view angles.  The 14/16-degree
+   window is deliberately just outside Python's 12/14-degree aim labels. */
+qboolean ML_HasEngageableTarget(edict_t *ent, const vec3_t view_angles)
 {
 	edict_t *other;
-	vec3_t forward, toward;
-	float distance;
+	vec3_t toward, target_angles;
+	float yaw_error, pitch_error;
 	int i;
 
-	AngleVectors(ent->s.angles, forward, NULL, NULL);
-	VectorNormalize(forward);
+	if (!ent || !ent->client || !view_angles || !ent->inuse || ent->deadflag ||
+		ent->health <= 0 || ent->solid == SOLID_NOT ||
+		ent->client->pers.spectator || ent->client->resp.spectator ||
+		(ent->lithium_flags & LITHIUM_OBSERVER) ||
+		ent->safety_time > level.time ||
+		ent->client->invincible_framenum > level.framenum)
+		return qfalse;
 
 	for (i = 1; i <= maxclients->value; i++)
 	{
 		other = &g_edicts[i];
 		if (other == ent || !other->inuse || !other->client ||
-			other->deadflag || other->health <= 0 || other->solid == SOLID_NOT)
+			other->deadflag || other->health <= 0 ||
+			other->solid != SOLID_BBOX || !other->takedamage)
 			continue;
 		if (other->client->pers.spectator || other->client->resp.spectator ||
 			(other->lithium_flags & LITHIUM_OBSERVER))
 			continue;
 		if (ctf->value &&
 			other->client->resp.ctf_team == ent->client->resp.ctf_team)
+			continue;
+		if (OnSameTeam(ent, other))
 			continue;
 		if (other->safety_time > level.time ||
 			other->client->invincible_framenum > level.framenum)
@@ -53,11 +71,13 @@ static qboolean ML_HasEngageableTarget(edict_t *ent)
 			continue;
 
 		VectorSubtract(other->s.origin, ent->s.origin, toward);
-		distance = VectorLength(toward);
-		if (distance <= 0.001f)
+		if (VectorLength(toward) <= 0.001f)
 			continue;
-		VectorScale(toward, 1.0f / distance, toward);
-		if (DotProduct(forward, toward) >= ML_FIRE_CONE_DOT)
+		vectoangles(toward, target_angles);
+		yaw_error = fabsf(ML_AngleDelta(view_angles[YAW], target_angles[YAW]));
+		pitch_error = fabsf(ML_AngleDelta(view_angles[PITCH], target_angles[PITCH]));
+		if (yaw_error <= ML_FIRE_YAW_DEGREES &&
+			pitch_error <= ML_FIRE_PITCH_DEGREES)
 			return qtrue;
 	}
 
@@ -313,6 +333,8 @@ static void ML_FillActionDebug(ml_action_debug_t *dst, zgcl_t *zc)
 	dst->jump          = (uint32_t)zc->ml_jump;
 	dst->fire          = (uint32_t)zc->ml_fire;
 	dst->hook          = (uint32_t)zc->ml_hook;
+	if (zc->ml_fire_suppressed)
+		dst->_pad |= ML_FIRE_GATE_SUPPRESSED;
 }
 
 /* Pack the bot's current state into an ml_obs_t structure. */
@@ -384,7 +406,7 @@ void ML_PackObs(edict_t *ent, ml_obs_t *obs)
 	if (ent->safety_time > level.time ||
 		ent->client->invincible_framenum > level.framenum)
 		obs->action_debug._pad |= ML_FIRE_GATE_PROTECTED;
-	if (ML_HasEngageableTarget(ent))
+	if (ML_HasEngageableTarget(ent, ent->client->v_angle))
 		obs->action_debug._pad |= ML_FIRE_GATE_TARGET;
 
 	/* ── audio ────────────────────────────────────────────── */
@@ -501,13 +523,19 @@ void ML_ApplyAction(edict_t *ent, const ml_action_t *act)
 	zgcl_t *zc = &ent->client->zc;
 	float forward_speed = 320.0f;
 	vec3_t forward, right;
+	vec3_t intended_angles;
 	qboolean fire_allowed;
 
 	if (ent->safety_time && ent->safety_time <= level.time)
 		ent->safety_time = 0;
+	VectorCopy(ent->client->v_angle, intended_angles);
+	intended_angles[YAW] += act->look_yaw;
+	intended_angles[PITCH] += act->look_pitch;
+	if (intended_angles[PITCH] > 89.0f) intended_angles[PITCH] = 89.0f;
+	if (intended_angles[PITCH] < -89.0f) intended_angles[PITCH] = -89.0f;
 	fire_allowed = !ent->safety_time &&
 		ent->client->invincible_framenum <= level.framenum &&
-		ML_HasEngageableTarget(ent);
+		ML_HasEngageableTarget(ent, intended_angles);
 
 	/* cache for any sub-tick logic */
 	zc->ml_move_forward = act->move_forward;
@@ -516,6 +544,7 @@ void ML_ApplyAction(edict_t *ent, const ml_action_t *act)
 	zc->ml_look_pitch   = act->look_pitch;
 	zc->ml_jump         = act->jump;
 	zc->ml_fire         = act->fire && fire_allowed;
+	zc->ml_fire_suppressed = act->fire && !fire_allowed;
 	zc->ml_hook         = act->hook;
 	zc->ml_weapon       = act->weapon;
 
