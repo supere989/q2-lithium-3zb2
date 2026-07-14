@@ -56,6 +56,7 @@ lvar_t *fast_wep;
 
 cvar_t *upgrade;
 cvar_t *bounce;
+static cvar_t *allow_client_bot_controls;
 
 lvar_t *dropweapammo;
 lvar_t *safety_time;
@@ -140,6 +141,10 @@ void Lithium_InitGame(void) {
 
 	upgrade = gi.cvar("upgrade", "0", 0);
 	bounce = gi.cvar("bounce", "", 0);
+	/* Public network-native training lanes reserve their client slots for
+	 * protocol clients.  Keep the historical menu available by default, but
+	 * let those lanes make bot population a server-console-only operation. */
+	allow_client_bot_controls = gi.cvar("allow_client_bot_controls", "1", 0);
 
 	fast_respawn = lvar("fast_respawn", ".65", "#.##", VAR_OTHER);
 	fast_minpbound = lvar("fast_minpbound", "4", "##", VAR_OTHER);
@@ -2367,6 +2372,15 @@ static char botmenu_botlist_text[64];
 static char botmenu_autospawn_text[64];
 static char botmenu_chedit_text[64];
 
+static qboolean Lithium_ClientBotControlsAllowed(edict_t *ent) {
+	if (allow_client_bot_controls && allow_client_bot_controls->value)
+		return qtrue;
+
+	gi.cprintf(ent, PRINT_HIGH,
+		"Bot controls are disabled on this server.\n");
+	return qfalse;
+}
+
 static int Lithium_CountBots(void) {
 	int i, n = 0;
 	edict_t *e;
@@ -2412,11 +2426,15 @@ static void Lithium_BotMenu_Refresh(edict_t *ent) {
 static void Lithium_BotMenu(edict_t *ent);
 
 static void Lithium_ToggleAutospawn(edict_t *ent) {
+	if (!Lithium_ClientBotControlsAllowed(ent))
+		return;
 	gi.cvar_set("autospawn", (autospawn && autospawn->value) ? "0" : "1");
 	Lithium_BotMenu(ent);
 }
 
 static void Lithium_ToggleChedit(edict_t *ent) {
+	if (!Lithium_ClientBotControlsAllowed(ent))
+		return;
 	gi.cvar_set("chedit", (chedit && chedit->value) ? "0" : "1");
 	Lithium_BotMenu(ent);
 }
@@ -2431,6 +2449,9 @@ static void Lithium_CycleBotlist(edict_t *ent) {
 	const char *cur = (botlist && botlist->string) ? botlist->string : "default";
 	int n = sizeof(bot_known_lists) / sizeof(bot_known_lists[0]);
 	int i, next = 0;
+
+	if (!Lithium_ClientBotControlsAllowed(ent))
+		return;
 	for (i = 0; i < n; i++) {
 		if (!strcmp(cur, bot_known_lists[i])) {
 			next = (i + 1) % n;
@@ -2444,23 +2465,33 @@ static void Lithium_CycleBotlist(edict_t *ent) {
 // Wrappers that issue the underlying `sv` command then refresh the menu so
 // the bot count updates without requiring the user to close and reopen.
 static void Lithium_BotMenu_AddBot(edict_t *ent) {
+	if (!Lithium_ClientBotControlsAllowed(ent))
+		return;
 	gi.AddCommandString("sv spb 1\n");
 	Lithium_BotMenu(ent);
 }
 static void Lithium_BotMenu_AddBalanced(edict_t *ent) {
+	if (!Lithium_ClientBotControlsAllowed(ent))
+		return;
 	gi.AddCommandString("sv rspb 1\n");
 	Lithium_BotMenu(ent);
 }
 static void Lithium_BotMenu_RemoveBot(edict_t *ent) {
+	if (!Lithium_ClientBotControlsAllowed(ent))
+		return;
 	gi.AddCommandString("sv rmb 1\n");
 	Lithium_BotMenu(ent);
 }
 static void Lithium_BotMenu_SaveChain(edict_t *ent) {
+	if (!Lithium_ClientBotControlsAllowed(ent))
+		return;
 	gi.AddCommandString("sv savechain\n");
 	Lithium_BotMenu(ent);
 }
 
 static void Lithium_BotMenu(edict_t *ent) {
+	if (!Lithium_ClientBotControlsAllowed(ent))
+		return;
 	Lithium_BotMenu_Refresh(ent);
 
 	Menu_Create(ent, 4, 17);
@@ -2492,7 +2523,8 @@ void Lithium_Menu(edict_t *ent) {
 	Menu_AddLine(ent, MENU_FUNC, 0, "Information", Lithium_Info);
 	if(ctf->value && !ent->client->resp.ctf_team)
 		Menu_AddLine(ent, MENU_CMD, 0, "CTF Team Menu", "inventory");
-	Menu_AddLine(ent, MENU_FUNC, 0, "Bots", Lithium_BotMenu);
+	if (allow_client_bot_controls && allow_client_bot_controls->value)
+		Menu_AddLine(ent, MENU_FUNC, 0, "Bots", Lithium_BotMenu);
 	Menu_AddLine(ent, MENU_CMD, 0, "Observer mode", "menu;observe");
 	Menu_AddLine(ent, MENU_CMD, 0, "Chasecam mode", "menu;chase");
 	Menu_AddLine(ent, MENU_CMD, 0, "Map vote", "vote");
