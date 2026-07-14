@@ -1,5 +1,6 @@
 #include <stdbool.h>
 #include "g_local.h"
+#include "ml_client_telemetry.h"
 
 
 qboolean	Pickup_Weapon (edict_t *ent, edict_t *other);
@@ -827,7 +828,8 @@ void Touch_Item (edict_t *ent, edict_t *other, cplane_t *plane, csurface_t *surf
 	taken = ent->item->pickup(ent, other);
 
 	/* q2-ml-bot: item pickup reward for ML-controlled bot */
-	if (taken && other->client && other->client->zc.ml_enabled)
+	if (taken && other->client &&
+	    (other->client->zc.ml_enabled || ML_ClientTelemetryActive(other)))
 		other->client->zc.ml_reward_item += 1.0f;
 
 	if (taken)

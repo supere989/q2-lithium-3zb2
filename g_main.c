@@ -1,4 +1,5 @@
 #include "g_local.h"
+#include "ml_client_telemetry.h"
 #include "bot.h"
 #include "ml_bridge.h"
 #include "ml_obs.h"
@@ -134,6 +135,7 @@ static qboolean G_CheckOutOfBoundsKill(edict_t *ent)
 void ShutdownGame (void)
 {
 	gi.dprintf ("==== ShutdownGame ====\n");
+	ML_ClientTelemetryShutdown();
 
 	//WF
 	Lithium_Shutdown();
@@ -626,4 +628,9 @@ void G_RunFrame (void)
 
 	// build the playerstate_t structures for all players
 	ClientEndServerFrames ();
+
+	/* Network-native training clients act through ordinary usercmds. Their
+	   authoritative, per-client observations leave through a distinct
+	   authenticated conduit after the simulation and HUD state are final. */
+	ML_ClientTelemetryFrame();
 }

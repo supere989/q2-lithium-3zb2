@@ -2,6 +2,7 @@
 // g_combat.c
 
 #include "g_local.h"
+#include "ml_client_telemetry.h"
 #include "bot.h"
 #include "rune_bits.h"
 
@@ -628,7 +629,8 @@ void T_Damage (edict_t *targ, edict_t *inflictor, edict_t *attacker, vec3_t dir,
 		//WF
 
 		/* q2-ml-bot: accumulate damage reward signals for ML-controlled bots */
-		if (attacker && attacker->client && attacker->client->zc.ml_enabled
+		if (attacker && attacker->client &&
+		    (attacker->client->zc.ml_enabled || ML_ClientTelemetryActive(attacker))
 		    && attacker != targ && reward_take > 0)
 		{
 			attacker->client->zc.ml_reward_damage_dealt += (float)reward_take;
@@ -637,7 +639,8 @@ void T_Damage (edict_t *targ, edict_t *inflictor, edict_t *attacker, vec3_t dir,
 			if (attacker->rune & (RUNE_STRENGTH | RUNE_HASTE))
 				attacker->client->zc.ml_reward_offense += (float)reward_take;
 		}
-		if (targ->client && targ->client->zc.ml_enabled)
+		if (targ->client &&
+		    (targ->client->zc.ml_enabled || ML_ClientTelemetryActive(targ)))
 		{
 			zgcl_t *tz = &targ->client->zc;
 			tz->ml_reward_damage_taken += (float)reward_take;
@@ -671,7 +674,8 @@ void T_Damage (edict_t *targ, edict_t *inflictor, edict_t *attacker, vec3_t dir,
 				targ->flags |= FL_NO_KNOCKBACK;
 			/* kill credit for ML attacker */
 			if (reward_target_alive && attacker && attacker->client
-			    && attacker->client->zc.ml_enabled
+			    && (attacker->client->zc.ml_enabled ||
+			        ML_ClientTelemetryActive(attacker))
 			    && attacker != targ)
 				attacker->client->zc.ml_reward_kill += 1.0f;
 			Killed (targ, inflictor, attacker, take, point);

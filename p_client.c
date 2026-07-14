@@ -1,5 +1,6 @@
 #include <stdbool.h>
 #include "g_local.h"
+#include "ml_client_telemetry.h"
 #include "m_player.h"
 #include "bot.h"
 
@@ -523,7 +524,8 @@ void player_die (edict_t *self, edict_t *inflictor, edict_t *attacker, int damag
 	if (!self->deadflag)
 	{
 		/* q2-ml-bot: death penalty for ML-controlled bot */
-		if (self->client && self->client->zc.ml_enabled)
+		if (self->client && (self->client->zc.ml_enabled ||
+		    ML_ClientTelemetryActive(self)))
 			self->client->zc.ml_reward_death += 1.0f;
 
 		if(self->svflags & SVF_MONSTER)
@@ -1829,6 +1831,7 @@ void ClientThink (edict_t *ent, usercmd_t *ucmd)
 
 	level.current_entity = ent;
 	client = ent->client;
+	ML_ClientTelemetryRecordCommand(ent, ucmd);
 
 	//WF
 	/*
