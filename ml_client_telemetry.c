@@ -31,6 +31,14 @@ static cvar_t *ml_client_telemetry;
 static cvar_t *ml_client_telemetry_port;
 static cvar_t *ml_client_telemetry_token;
 
+static void ML_ClientTelemetryDeactivateRoute(ml_client_route_t *route)
+{
+    if (!route)
+        return;
+    route->active = qfalse;
+    memset(&route->endpoint, 0, sizeof(route->endpoint));
+}
+
 static void ML_ClientTelemetryCvars(void)
 {
     if (ml_client_telemetry)
@@ -244,8 +252,7 @@ static void ML_ClientTelemetryPoll(void)
         /* The client refreshes its NAT binding periodically. Preserve the
            route sequence for the same identity so Python never observes a
            false rollback; a genuinely different identity starts at zero. */
-        if (!ml_client_routes[slot].active ||
-            !ML_ClientIdEqual(ml_client_routes[slot].client_id,
+        if (!ML_ClientIdEqual(ml_client_routes[slot].client_id,
                 registration.client_id))
         {
             memset(&ml_client_routes[slot], 0, sizeof(ml_client_routes[slot]));
@@ -268,6 +275,20 @@ qboolean ML_ClientTelemetryActive(edict_t *ent)
     if (slot < 0 || slot >= MAX_CLIENTS)
         return qfalse;
     return ml_client_routes[slot].active;
+}
+
+void ML_ClientTelemetryClientDisconnected(edict_t *ent)
+{
+    int slot;
+    if (!ent)
+        return;
+    slot = (int)(ent - g_edicts - 1);
+    if (slot < 0 || slot >= MAX_CLIENTS)
+        return;
+    /* Keep the identity and sequence as a tombstone.  A reconnect by the
+       same routed client must not roll Python's monotonic packet filter back
+       to zero; a different client_id still resets both on registration. */
+    ML_ClientTelemetryDeactivateRoute(&ml_client_routes[slot]);
 }
 
 void ML_ClientTelemetryRecordCommand(edict_t *ent, usercmd_t *ucmd)
@@ -306,9 +327,20 @@ void ML_ClientTelemetryFrame(void)
         if (!route->active)
             continue;
         ent = &g_edicts[slot + 1];
-        if (!ent->inuse || !ent->client || (ent->svflags & SVF_MONSTER))
+        if (!ent->client || (ent->svflags & SVF_MONSTER))
         {
-            memset(route, 0, sizeof(*route));
+            ML_ClientTelemetryDeactivateRoute(route);
+            continue;
+        }
+        if (!ent->inuse)
+        {
+            /* SpawnEntities() clears every edict before the engine calls
+               ClientBegin() for connected clients on the new map.  Keep the
+               route (and, critically, its monotonic sequence) through that
+               short gap.  A real disconnect clears pers.connected, so stale
+               routes are still discarded before a slot can be reused. */
+            if (!ent->client->pers.connected)
+                ML_ClientTelemetryDeactivateRoute(route);
             continue;
         }
         strncpy(current_id,
@@ -317,7 +349,7 @@ void ML_ClientTelemetryFrame(void)
         current_id[sizeof(current_id) - 1] = '\0';
         if (!ML_ClientIdEqual(current_id, route->client_id))
         {
-            memset(route, 0, sizeof(*route));
+            ML_ClientTelemetryDeactivateRoute(route);
             continue;
         }
 

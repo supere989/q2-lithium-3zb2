@@ -1723,6 +1723,7 @@ void ClientDisconnect (edict_t *ent)
 
 	if(!ent->client)
 		return;
+	ML_ClientTelemetryClientDisconnected(ent);
 
 	Rune_Drop(ent);
 	Lithium_ClientDisconnect(ent);
