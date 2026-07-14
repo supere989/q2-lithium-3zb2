@@ -1,0 +1,140 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:q2-ml:q2-hook-oracle-v1:response",
+  "title": "q2-hook-oracle v1 NDJSON response",
+  "oneOf": [
+    {
+      "allOf": [
+        {"$ref": "#/$defs/success"},
+        {
+          "type": "object",
+          "required": ["parameters", "source"],
+          "properties": {
+            "op": {"const": "identity"},
+            "parameters": {"$ref": "#/$defs/parameters"},
+            "source": {"$ref": "#/$defs/source"}
+          }
+        }
+      ],
+      "unevaluatedProperties": false
+    },
+    {
+      "allOf": [
+        {"$ref": "#/$defs/success"},
+        {
+          "type": "object",
+          "required": ["velocity"],
+          "properties": {
+            "op": {"const": "launch"},
+            "velocity": {"$ref": "#/$defs/vec3"}
+          }
+        }
+      ],
+      "unevaluatedProperties": false
+    },
+    {
+      "allOf": [
+        {"$ref": "#/$defs/success"},
+        {
+          "type": "object",
+          "required": ["target_source", "distance", "prior_velocity", "velocity", "full_velocity_overwrite"],
+          "properties": {
+            "op": {"const": "pull"},
+            "target_source": {"enum": ["hook_origin", "enemy_origin"]},
+            "distance": {"type": "number", "minimum": 0},
+            "prior_velocity": {"$ref": "#/$defs/vec3"},
+            "velocity": {"$ref": "#/$defs/vec3"},
+            "full_velocity_overwrite": {"const": true}
+          }
+        }
+      ],
+      "unevaluatedProperties": false
+    },
+    {
+      "allOf": [
+        {"$ref": "#/$defs/success"},
+        {
+          "type": "object",
+          "required": ["action", "attached"],
+          "properties": {
+            "op": {"const": "touch"},
+            "action": {"enum": ["attach", "ignore_owner", "ignore_invalid_owner", "ignore_nonblocking", "reset_sky"]},
+            "attached": {"type": "boolean"}
+          }
+        }
+      ],
+      "unevaluatedProperties": false
+    },
+    {
+      "allOf": [
+        {"$ref": "#/$defs/success"},
+        {
+          "type": "object",
+          "required": ["hook_origin"],
+          "properties": {
+            "op": {"const": "backoff"},
+            "hook_origin": {"$ref": "#/$defs/vec3"}
+          }
+        }
+      ],
+      "unevaluatedProperties": false
+    },
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["ok", "id", "error", "detail"],
+      "properties": {
+        "ok": {"const": false},
+        "id": {"type": "string", "maxLength": 127},
+        "error": {"type": "string", "minLength": 1},
+        "detail": {"type": "string"}
+      }
+    }
+  ],
+  "$defs": {
+    "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "vec3": {
+      "type": "array",
+      "prefixItems": [{"type": "number"}, {"type": "number"}, {"type": "number"}],
+      "minItems": 3,
+      "maxItems": 3
+    },
+    "success": {
+      "type": "object",
+      "required": ["ok", "id", "op", "schema", "physics_identity", "tool_identity"],
+      "properties": {
+        "ok": {"const": true},
+        "id": {"type": "string", "maxLength": 127},
+        "op": {"enum": ["identity", "launch", "pull", "touch", "backoff"]},
+        "schema": {"const": "q2-hook-oracle-v1"},
+        "physics_identity": {"$ref": "#/$defs/sha256"},
+        "tool_identity": {"$ref": "#/$defs/sha256"}
+      }
+    },
+    "parameters": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["hook_speed", "hook_pullspeed", "hook_sky", "hook_maxtime", "full_velocity_overwrite"],
+      "properties": {
+        "hook_speed": {"type": "number", "minimum": 0},
+        "hook_pullspeed": {"type": "number", "minimum": 0},
+        "hook_sky": {"type": "boolean"},
+        "hook_maxtime": {"type": "number", "minimum": 0},
+        "full_velocity_overwrite": {"const": true}
+      }
+    },
+    "source": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["shared_c_sha256", "shared_h_sha256", "integration_sha256", "math_sha256", "build_contract", "tool_closure_sha256"],
+      "properties": {
+        "shared_c_sha256": {"$ref": "#/$defs/sha256"},
+        "shared_h_sha256": {"$ref": "#/$defs/sha256"},
+        "integration_sha256": {"$ref": "#/$defs/sha256"},
+        "math_sha256": {"$ref": "#/$defs/sha256"},
+        "build_contract": {"const": "lithium-linux-c99-o1-f32-shared-hook-v2"},
+        "tool_closure_sha256": {"$ref": "#/$defs/sha256"}
+      }
+    }
+  }
+}

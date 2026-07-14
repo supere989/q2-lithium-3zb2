@@ -128,11 +128,12 @@ static void physics_identity(const parameters_t *p, char output[65])
 	uint8_t hash[32];
 	hook_sha256_ctx_t ctx;
 	snprintf(canonical, sizeof(canonical),
-		"schema=q2-hook-oracle-v1;shared_c=%s;shared_h=%s;integration=%s;math=%s;build=%s;"
+		"schema=q2-hook-oracle-v1;shared_c=%s;shared_h=%s;integration=%s;math=%s;build=%s;tool_closure=%s;"
 		"hook_speed=%.9g;hook_pullspeed=%.9g;hook_sky=%d;hook_maxtime=%.9g;full_velocity_overwrite=1",
 		Q2_HOOK_SHARED_C_SHA256, Q2_HOOK_SHARED_H_SHA256,
 		Q2_HOOK_INTEGRATION_SHA256, Q2_HOOK_MATH_SHA256,
-		Q2_HOOK_BUILD_CONTRACT, p->speed, p->pullspeed, p->sky, p->maxtime);
+		Q2_HOOK_BUILD_CONTRACT, Q2_HOOK_TOOL_CLOSURE_SHA256,
+		p->speed, p->pullspeed, p->sky, p->maxtime);
 	hook_sha256_init(&ctx); hook_sha256_update(&ctx, canonical, strlen(canonical));
 	hook_sha256_final(&ctx, hash); hook_sha256_hex(hash, output);
 }
@@ -144,6 +145,7 @@ static void print_prefix(const char *id, const char *op, const parameters_t *p)
 	fputs("{\"ok\":true,\"id\":", stdout); print_string(id);
 	fputs(",\"op\":", stdout); print_string(op);
 	fputs(",\"schema\":\"q2-hook-oracle-v1\",\"physics_identity\":", stdout); print_string(identity);
+	fputs(",\"tool_identity\":", stdout); print_string(Q2_HOOK_TOOL_CLOSURE_SHA256);
 }
 
 static void handle_line(const char *line)
@@ -166,7 +168,9 @@ static void handle_line(const char *line)
 		fputs(",\"shared_h_sha256\":", stdout); print_string(Q2_HOOK_SHARED_H_SHA256);
 		fputs(",\"integration_sha256\":", stdout); print_string(Q2_HOOK_INTEGRATION_SHA256);
 		fputs(",\"math_sha256\":", stdout); print_string(Q2_HOOK_MATH_SHA256);
-		fputs(",\"build_contract\":", stdout); print_string(Q2_HOOK_BUILD_CONTRACT); fputs("}}\n", stdout);
+		fputs(",\"build_contract\":", stdout); print_string(Q2_HOOK_BUILD_CONTRACT);
+		fputs(",\"tool_closure_sha256\":", stdout); print_string(Q2_HOOK_TOOL_CLOSURE_SHA256);
+		fputs("}}\n", stdout);
 		return;
 	}
 	if (!strcmp(op, "launch")) {
@@ -210,7 +214,16 @@ int main(void)
 {
 	char *line = malloc(LINE_MAX_BYTES);
 	if (!line) return 70;
-	while (fgets(line, LINE_MAX_BYTES, stdin)) { handle_line(line); fflush(stdout); }
+	while (fgets(line, LINE_MAX_BYTES, stdin)) {
+		if (!strchr(line, '\n') && !feof(stdin)) {
+			int character;
+			print_error("", "request_too_large", "NDJSON line exceeds one MiB");
+			while ((character = fgetc(stdin)) != '\n' && character != EOF) { }
+			continue;
+		}
+		handle_line(line);
+		fflush(stdout);
+	}
 	free(line);
 	return ferror(stdin) ? 74 : 0;
 }

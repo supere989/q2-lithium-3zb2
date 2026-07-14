@@ -56,11 +56,17 @@ SHLIBEXT=so
 SHLIBCFLAGS=-fPIC
 SHLIBLDFLAGS=-shared
 
-.PHONY: clean depend test-pain-sound hook-oracle test-hook-oracle test-hook-q2ded-parity
+.PHONY: clean depend test-pain-sound hook-oracle test-hook-oracle \
+	test-hook-q2ded-parity test-hook-probe-boundary
 
 HOOK_ORACLE_BUILD=.build/hook-oracle
 HOOK_ORACLE=tools/q2-hook-oracle
 HOOK_IDENTITY=$(HOOK_ORACLE_BUILD)/hook_oracle_identity.h
+HOOK_PARITY_ATTESTATION?=$(HOOK_ORACLE_BUILD)/hook-parity-attestation.json
+HOOK_PARITY_SPEED?=900
+HOOK_PARITY_PULLSPEED?=1700
+HOOK_PARITY_SKY?=0
+HOOK_PARITY_MAXTIME?=5
 
 DO_CC=$(CC) $(CFLAGS) $(SHLIBCFLAGS) -o $@ -c $<
 
@@ -100,7 +106,11 @@ clean:
 $(HOOK_ORACLE_BUILD):
 	mkdir -p $@
 
-$(HOOK_IDENTITY): tools/gen_hook_identity.py ml_hook_physics.c ml_hook_physics.h l_hook.c q_shared.c | $(HOOK_ORACLE_BUILD)
+$(HOOK_IDENTITY): tools/gen_hook_identity.py ml_hook_physics.c ml_hook_physics.h \
+		l_hook.c q_shared.c q_shared.h Makefile tools/q2_hook_oracle.c \
+		tools/oracle_sha256.c tools/oracle_sha256.h \
+		tools/schemas/q2-hook-oracle-v1.schema.json \
+		tools/schemas/q2-hook-oracle-v1.response.schema.json | $(HOOK_ORACLE_BUILD)
 	python3 tools/gen_hook_identity.py . $@
 
 $(HOOK_ORACLE): tools/q2_hook_oracle.c tools/oracle_sha256.c tools/oracle_sha256.h \
@@ -112,14 +122,25 @@ $(HOOK_ORACLE): tools/q2_hook_oracle.c tools/oracle_sha256.c tools/oracle_sha256
 hook-oracle: $(HOOK_ORACLE)
 
 test-hook-oracle: $(HOOK_ORACLE)
-	python3 -m unittest discover -s tests -p 'test_hook_oracle.py' -v
+	python3 -m unittest discover -s tests -p 'test_hook*.py' -v
 
 test-hook-q2ded-parity: $(HOOK_ORACLE) lithium/gamex86_64.so
 	@test -n "$(Q2DED)" || { echo "Q2DED=/path/to/q2ded is required" >&2; exit 2; }
 	@test -n "$(PMOVE_ORACLE)" || { echo "PMOVE_ORACLE=/path/to/q2-pmove-oracle is required" >&2; exit 2; }
 	@test -n "$(CM_ORACLE)" || { echo "CM_ORACLE=/path/to/q2-cm-oracle is required" >&2; exit 2; }
 	python3 tests/run_q2ded_hook_parity.py --q2ded "$(Q2DED)" \
-		--pmove-oracle "$(PMOVE_ORACLE)" --cm-oracle "$(CM_ORACLE)"
+		--pmove-oracle "$(PMOVE_ORACLE)" --cm-oracle "$(CM_ORACLE)" \
+		--hook-speed "$(HOOK_PARITY_SPEED)" \
+		--hook-pullspeed "$(HOOK_PARITY_PULLSPEED)" \
+		--hook-sky "$(HOOK_PARITY_SKY)" \
+		--hook-maxtime "$(HOOK_PARITY_MAXTIME)" \
+		> "$(HOOK_PARITY_ATTESTATION)"
+
+test-hook-probe-boundary: lithium/gamex86_64.so
+	@if nm lithium/gamex86_64.so | grep -q 'Hook_OracleParityProbe'; then \
+		echo "normal module exports hook parity probe" >&2; exit 1; fi
+	@if strings lithium/gamex86_64.so | grep -q 'hook_oracle_probe'; then \
+		echo "normal module contains hook parity command" >&2; exit 1; fi
 
 test-pain-sound: tests/test_pain_sound
 	./tests/test_pain_sound

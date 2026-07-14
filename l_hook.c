@@ -403,39 +403,54 @@ void Hook_OracleParityProbe(void)
 	vec3_t trace_end = {0, 0, -64};
 	vec3_t stand_mins = {-16, -16, -24};
 	vec3_t stand_maxs = {16, 16, 32};
+	float probe_speed = hook_speed->value;
+	float probe_pullspeed = hook_pullspeed->value;
+	float probe_maxtime = hook_maxtime->value;
+	qboolean probe_sky = hook_sky->value != 0;
 
-	distance = Q2_HookPullVelocity(owner, hook, enemy, 0, 700, velocity);
+	gi.dprintf("Q2_HOOK_PARITY {\"id\":\"parameters\",\"op\":\"parameters\","
+		"\"hook_speed\":%.9g,\"hook_pullspeed\":%.9g,\"hook_sky\":%s,"
+		"\"hook_maxtime\":%.9g,\"full_velocity_overwrite\":true}\n",
+		probe_speed, probe_pullspeed, probe_sky ? "true" : "false", probe_maxtime);
+	distance = Q2_HookPullVelocity(owner, hook, enemy, 0,
+		probe_pullspeed, velocity);
 	gi.dprintf("Q2_HOOK_PARITY {\"id\":\"world-pull\",\"op\":\"pull\","
 		"\"owner_origin\":[10,-20,30],\"hook_origin\":[110,30,80],"
-		"\"hook_pullspeed\":700,\"server_distance\":%.9g,"
+		"\"hook_pullspeed\":%.9g,\"server_distance\":%.9g,"
 		"\"server_velocity\":[%.9g,%.9g,%.9g]}\n",
-		distance, velocity[0], velocity[1], velocity[2]);
-	distance = Q2_HookPullVelocity(owner, hook, enemy, 1, 700, velocity);
+		probe_pullspeed, distance, velocity[0], velocity[1], velocity[2]);
+	distance = Q2_HookPullVelocity(owner, hook, enemy, 1,
+		probe_pullspeed, velocity);
 	gi.dprintf("Q2_HOOK_PARITY {\"id\":\"client-pull\",\"op\":\"pull\","
 		"\"owner_origin\":[10,-20,30],\"hook_origin\":[110,30,80],"
 		"\"enemy_origin\":[-40,80,55],\"enemy_is_client\":true,"
-		"\"hook_pullspeed\":700,\"server_distance\":%.9g,"
+		"\"hook_pullspeed\":%.9g,\"server_distance\":%.9g,"
 		"\"server_velocity\":[%.9g,%.9g,%.9g]}\n",
-		distance, velocity[0], velocity[1], velocity[2]);
-	distance = Q2_HookPullVelocity(zero, zero, zero, 0, 700, velocity);
+		probe_pullspeed, distance, velocity[0], velocity[1], velocity[2]);
+	distance = Q2_HookPullVelocity(zero, zero, zero, 0,
+		probe_pullspeed, velocity);
 	gi.dprintf("Q2_HOOK_PARITY {\"id\":\"zero-pull\",\"op\":\"pull\","
 		"\"owner_origin\":[1,2,3],\"hook_origin\":[1,2,3],"
+		"\"hook_pullspeed\":%.9g,"
 		"\"server_distance\":%.9g,\"server_velocity\":[%.9g,%.9g,%.9g]}\n",
-		distance, velocity[0], velocity[1], velocity[2]);
-	Q2_HookLaunchVelocity(forward, 900, velocity);
+		probe_pullspeed, distance, velocity[0], velocity[1], velocity[2]);
+	Q2_HookLaunchVelocity(forward, probe_speed, velocity);
 	gi.dprintf("Q2_HOOK_PARITY {\"id\":\"launch\",\"op\":\"launch\","
+		"\"hook_speed\":%.9g,"
 		"\"forward\":[0.600000024,0,0.800000012],"
 		"\"server_velocity\":[%.9g,%.9g,%.9g]}\n",
-		velocity[0], velocity[1], velocity[2]);
+		probe_speed, velocity[0], velocity[1], velocity[2]);
 	Q2_HookBackoffOrigin(backoff, forward, 10);
 	gi.dprintf("Q2_HOOK_PARITY {\"id\":\"backoff\",\"op\":\"backoff\","
 		"\"hook_origin\":[24,8,14],\"forward\":[0.600000024,0,0.800000012],"
 		"\"server_hook_origin\":[%.9g,%.9g,%.9g]}\n",
 		backoff[0], backoff[1], backoff[2]);
-	action = Q2_HookClassifyTouch(0, 1, 0, 0, 1, 0);
+	action = Q2_HookClassifyTouch(0, 1, 0, 0, 1, probe_sky);
 	gi.dprintf("Q2_HOOK_PARITY {\"id\":\"sky\",\"op\":\"touch\","
 		"\"owner_has_client\":true,\"surface_is_sky\":true,"
-		"\"server_action\":\"%s\"}\n", Q2_HookTouchActionName(action));
+		"\"hook_sky\":%s,"
+		"\"server_action\":\"%s\"}\n",
+		probe_sky ? "true" : "false", Q2_HookTouchActionName(action));
 	action = Q2_HookClassifyTouch(0, 1, 0, 0, 0, 0);
 	gi.dprintf("Q2_HOOK_PARITY {\"id\":\"attach\",\"op\":\"touch\","
 		"\"owner_has_client\":true,\"server_action\":\"%s\"}\n",
@@ -446,7 +461,7 @@ void Hook_OracleParityProbe(void)
 	VectorSet(hook, 0, 0, 0);
 	direct_trace = gi.trace(owner, stand_mins, stand_maxs, trace_end,
 		NULL, MASK_PLAYERSOLID);
-	Q2_HookPullVelocity(owner, hook, hook, 0, 700, velocity);
+	Q2_HookPullVelocity(owner, hook, hook, 0, probe_pullspeed, velocity);
 	memset(&pm, 0, sizeof(pm));
 	pm.s.pm_type = PM_NORMAL;
 	pm.s.origin[0] = owner[0] * 8;
@@ -462,13 +477,13 @@ void Hook_OracleParityProbe(void)
 	gi.Pmove(&pm);
 	gi.dprintf("Q2_HOOK_PARITY {\"id\":\"hook-landing\",\"op\":\"hook_landing\","
 		"\"owner_origin\":[0,0,80],\"hook_origin\":[0,0,0],"
-		"\"hook_pullspeed\":700,\"gravity\":800,\"commands\":[{\"msec\":100}],"
+		"\"hook_pullspeed\":%.9g,\"gravity\":800,\"commands\":[{\"msec\":100}],"
 		"\"server_origin_fixed\":[%d,%d,%d],"
 		"\"server_velocity_fixed\":[%d,%d,%d],\"server_grounded\":%s,"
 		"\"server_mins\":[%.9g,%.9g,%.9g],\"server_maxs\":[%.9g,%.9g,%.9g],"
 		"\"server_direct_endpos\":[%.9g,%.9g,%.9g],\"server_direct_fraction\":%.9g,"
 		"\"server_direct_entnum\":%d}\n",
-		pm.s.origin[0], pm.s.origin[1], pm.s.origin[2],
+		probe_pullspeed, pm.s.origin[0], pm.s.origin[1], pm.s.origin[2],
 		pm.s.velocity[0], pm.s.velocity[1], pm.s.velocity[2],
 		pm.groundentity ? "true" : "false",
 		pm.mins[0], pm.mins[1], pm.mins[2], pm.maxs[0], pm.maxs[1], pm.maxs[2],

@@ -1,0 +1,114 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:q2-ml:q2-hook-parity-attestation-v1",
+  "title": "Canonical isolated-q2ded hook parity attestation v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "passed", "parameters", "fixture", "identities", "binaries", "attestor_closure_sha256", "evidence", "checks"],
+  "properties": {
+    "schema": {"const": "q2-hook-parity-attestation-v1"},
+    "passed": {"const": true},
+    "parameters": {"$ref": "#/$defs/hook_parameters"},
+    "fixture": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "bsp_sha256", "bsp_bytes", "ibsp_version"],
+      "properties": {
+        "name": {"const": "hookprobe-v1"},
+        "bsp_sha256": {"$ref": "#/$defs/sha256"},
+        "bsp_bytes": {"type": "integer", "minimum": 1},
+        "ibsp_version": {"const": 38}
+      }
+    },
+    "identities": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["hook", "collision", "pmove"],
+      "properties": {
+        "hook": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["schema", "physics_identity", "tool_identity", "source"],
+          "properties": {
+            "schema": {"const": "q2-hook-oracle-v1"},
+            "physics_identity": {"$ref": "#/$defs/sha256"},
+            "tool_identity": {"$ref": "#/$defs/sha256"},
+            "source": {"$ref": "#/$defs/hook_source"}
+          }
+        },
+        "collision": {"$ref": "#/$defs/map_identity"},
+        "pmove": {"$ref": "#/$defs/map_identity"}
+      }
+    },
+    "binaries": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["q2ded_sha256", "probe_game_module_sha256", "hook_oracle_sha256", "cm_oracle_sha256", "pmove_oracle_sha256"],
+      "properties": {
+        "q2ded_sha256": {"$ref": "#/$defs/sha256"},
+        "probe_game_module_sha256": {"$ref": "#/$defs/sha256"},
+        "hook_oracle_sha256": {"$ref": "#/$defs/sha256"},
+        "cm_oracle_sha256": {"$ref": "#/$defs/sha256"},
+        "pmove_oracle_sha256": {"$ref": "#/$defs/sha256"}
+      }
+    },
+    "attestor_closure_sha256": {"$ref": "#/$defs/sha256"},
+    "evidence": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["case_count", "case_ids", "vector_results_sha256"],
+      "properties": {
+        "case_count": {"type": "integer", "minimum": 1},
+        "case_ids": {
+          "type": "array",
+          "minItems": 1,
+          "items": {"type": "string", "minLength": 1}
+        },
+        "vector_results_sha256": {"$ref": "#/$defs/sha256"}
+      }
+    },
+    "checks": {
+      "type": "object",
+      "minProperties": 1,
+      "additionalProperties": {"const": true}
+    }
+  },
+  "$defs": {
+    "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "hook_parameters": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["hook_speed", "hook_pullspeed", "hook_sky", "hook_maxtime", "full_velocity_overwrite"],
+      "properties": {
+        "hook_speed": {"type": "number", "minimum": 0},
+        "hook_pullspeed": {"type": "number", "minimum": 0},
+        "hook_sky": {"type": "boolean"},
+        "hook_maxtime": {"type": "number", "minimum": 0},
+        "full_velocity_overwrite": {"const": true}
+      }
+    },
+    "hook_source": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["shared_c_sha256", "shared_h_sha256", "integration_sha256", "math_sha256", "build_contract", "tool_closure_sha256"],
+      "properties": {
+        "shared_c_sha256": {"$ref": "#/$defs/sha256"},
+        "shared_h_sha256": {"$ref": "#/$defs/sha256"},
+        "integration_sha256": {"$ref": "#/$defs/sha256"},
+        "math_sha256": {"$ref": "#/$defs/sha256"},
+        "build_contract": {"const": "lithium-linux-c99-o1-f32-shared-hook-v2"},
+        "tool_closure_sha256": {"$ref": "#/$defs/sha256"}
+      }
+    },
+    "map_identity": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schema", "physics_identity", "map_sha256"],
+      "properties": {
+        "schema": {"enum": ["q2-cm-oracle-v1", "q2-pmove-oracle-v1"]},
+        "physics_identity": {"$ref": "#/$defs/sha256"},
+        "map_sha256": {"$ref": "#/$defs/sha256"}
+      }
+    }
+  }
+}
