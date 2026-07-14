@@ -109,6 +109,7 @@ typedef struct zgcl_s
 	float		ml_reward_offense;		/* offense-rune damage + escalating same-target hits */
 	float		ml_reward_survival;		/* health recovered while holding regen/vampire */
 	int			ml_hit_target_edict;		/* current focus target, or zero */
+	int			ml_hit_target_epoch;		/* connection/life epoch for slot reuse */
 	int			ml_hit_streak;			/* consecutive damaging hits on that target */
 	int			ml_last_hit_frame;		/* frame of most recent qualifying hit */
 	/* inbound damage vector (most recent significant hit, decays each frame) */

@@ -14,10 +14,10 @@
 #include <stdint.h>
 
 #define ML_BASE_PORT    27950   /* bot 0 = 27950, bot 1 = 27951, ... */
-#define ML_OBS_MAGIC    0x514D4C4F  /* "QMLO" */
+#define ML_OBS_MAGIC    0x514D4C50  /* "QMLP": target-solution semantics */
 #define ML_ACT_MAGIC    0x514D4C41  /* "QMLA" */
 #define ML_TEACHER_MAGIC 0x5154335A /* "QT3Z" */
-#define ML_TEACHER_VERSION 1
+#define ML_TEACHER_VERSION 2
 
 #define ML_MAX_ENTITIES 8       /* visible enemies/teammates in obs */
 #define ML_RAY_COUNT    16      /* directional depth-trace rays */
@@ -49,10 +49,15 @@
 #define ML_ENTITY_GROUNDED     0x4000
 #define ML_ENTITY_PM_ON_GROUND 0x8000
 #define ML_ENTITY_PROTECTED    0x10000
+#define ML_ENTITY_DUCKED       0x20000
+#define ML_ENTITY_EPOCH_SHIFT  18
+#define ML_ENTITY_EPOCH_MASK   0xFFFC0000u
 
 #define ML_FIRE_GATE_PROTECTED 0x01
 #define ML_FIRE_GATE_TARGET    0x02
 #define ML_FIRE_GATE_SUPPRESSED 0x04
+#define ML_HIT_STREAK_SHIFT 8
+#define ML_HIT_STREAK_MASK  0x0000FF00u
 
 /* ── Observation sent game.so → Python ───────────────────────────────── */
 
@@ -66,11 +71,16 @@ typedef struct {
 } ml_self_t;
 
 typedef struct {
-    float rel_pos[3];       /* relative to bot, world units */
+    /* Eye-to-best-damageable-point in full client->v_angle
+       forward/Quake-right/up coordinates, world units. */
+    float rel_pos[3];
+    /* target velocity minus shooter velocity in the same local basis */
     float vel[3];
     float health;
     float is_enemy;         /* 1=enemy 0=teammate */
-    float visible;          /* 1=LOS clear */
+    /* Exact clear-probe fraction. Positive is fire-actionable; negative is
+       sensed but shooter-protected (aim/thermal may use the magnitude). */
+    float visible;          /* -1..1 */
 } ml_entity_t;
 
 typedef struct {

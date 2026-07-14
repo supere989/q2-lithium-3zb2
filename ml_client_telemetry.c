@@ -31,6 +31,17 @@ static cvar_t *ml_client_telemetry;
 static cvar_t *ml_client_telemetry_port;
 static cvar_t *ml_client_telemetry_token;
 
+#define ML_HARNESS_IMPULSE_BASE 160
+#define ML_HARNESS_IMPULSE_COUNT 40
+
+static float ML_ClientAngleDelta(float left, float right)
+{
+    float delta = anglemod(left - right);
+    if (delta > 180.0f)
+        delta -= 360.0f;
+    return delta;
+}
+
 static void ML_ClientTelemetryDeactivateRoute(ml_client_route_t *route)
 {
     if (!route)
@@ -311,6 +322,7 @@ void ML_ClientTelemetryRecordCommand(edict_t *ent, usercmd_t *ucmd)
     vec3_t intended_angles;
     int i;
     qboolean requested_fire;
+    int requested_reliable;
     if (!ucmd || (!ML_ClientTelemetryActive(ent) &&
         !ML_ClientTelemetryIdentified(ent)))
         return;
@@ -338,10 +350,24 @@ void ML_ClientTelemetryRecordCommand(edict_t *ent, usercmd_t *ucmd)
     zc->ml_last_action_ok = 1;
     zc->ml_move_forward = (float)ucmd->forwardmove / 320.0f;
     zc->ml_move_right = (float)ucmd->sidemove / 320.0f;
-    zc->ml_look_yaw = intended_angles[YAW] - ent->client->v_angle[YAW];
+    zc->ml_look_yaw = ML_ClientAngleDelta(
+        intended_angles[YAW], ent->client->v_angle[YAW]);
     zc->ml_look_pitch = intended_angles[PITCH] - ent->client->v_angle[PITCH];
     zc->ml_jump = ucmd->upmove > 0;
     zc->ml_fire = (ucmd->buttons & BUTTON_ATTACK) != 0;
+    requested_reliable = (int)ucmd->impulse - ML_HARNESS_IMPULSE_BASE;
+    if (requested_reliable >= 0 &&
+        requested_reliable < ML_HARNESS_IMPULSE_COUNT)
+    {
+        zc->ml_hook = requested_reliable / 10;
+        zc->ml_weapon = requested_reliable % 10;
+    }
+    else
+    {
+        /* Missing attribution is a no-op, never a stale prior decision. */
+        zc->ml_hook = 0;
+        zc->ml_weapon = 0;
+    }
 
     /* A protocol client normally presses attack to leave the death screen.
        The policy's attack bit is target-gated, though, and a dead player can

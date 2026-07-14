@@ -30,6 +30,43 @@ static float ML_AngleDelta(float left, float right)
 	return delta;
 }
 
+static qboolean ML_TargetIsHostile(edict_t *ent, edict_t *other)
+{
+	if (!ent || !ent->client || !other || !other->client || other == ent)
+		return qfalse;
+	if (ctf->value)
+		return other->client->resp.ctf_team != ent->client->resp.ctf_team;
+	return !OnSameTeam(ent, other);
+}
+
+/* One damageable-target predicate feeds observation sensing and both fire
+   gates. Shooter protection is deliberately handled by the caller: a newly
+   spawned player must still perceive/track enemies even though it cannot fire. */
+static qboolean ML_TargetSolution(edict_t *ent, edict_t *other,
+							 vec3_t out_point, float *out_exposure)
+{
+	if (out_point)
+		VectorClear(out_point);
+	if (out_exposure)
+		*out_exposure = 0.0f;
+	if (!ent || !ent->client || !ent->inuse || ent->deadflag ||
+		ent->health <= 0 || ent->solid == SOLID_NOT ||
+		ent->client->pers.spectator || ent->client->resp.spectator ||
+		(ent->lithium_flags & LITHIUM_OBSERVER))
+		return qfalse;
+	if (!other || !other->inuse || !other->client || other->deadflag ||
+		other->health <= 0 || other->solid != SOLID_BBOX ||
+		!other->takedamage || other->client->pers.spectator ||
+		other->client->resp.spectator ||
+		(other->lithium_flags & LITHIUM_OBSERVER) ||
+		other->safety_time > level.time ||
+		other->client->invincible_framenum > level.framenum ||
+		!ML_TargetIsHostile(ent, other))
+		return qfalse;
+
+	return ML_TargetAcquire(ent, other, out_point, out_exposure);
+}
+
 /* Return true only for a target that can be acted on now.  LOS alone is not
    engagement: the target must be alive, hostile, damageable, unprotected, and
    aligned with the supplied full-resolution view angles.  The 14/16-degree
@@ -37,7 +74,7 @@ static float ML_AngleDelta(float left, float right)
 qboolean ML_HasEngageableTarget(edict_t *ent, const vec3_t view_angles)
 {
 	edict_t *other;
-	vec3_t toward, target_angles;
+	vec3_t eye, target_point, toward, target_angles;
 	float yaw_error, pitch_error;
 	int i;
 
@@ -52,25 +89,11 @@ qboolean ML_HasEngageableTarget(edict_t *ent, const vec3_t view_angles)
 	for (i = 1; i <= maxclients->value; i++)
 	{
 		other = &g_edicts[i];
-		if (other == ent || !other->inuse || !other->client ||
-			other->deadflag || other->health <= 0 ||
-			other->solid != SOLID_BBOX || !other->takedamage)
-			continue;
-		if (other->client->pers.spectator || other->client->resp.spectator ||
-			(other->lithium_flags & LITHIUM_OBSERVER))
-			continue;
-		if (ctf->value &&
-			other->client->resp.ctf_team == ent->client->resp.ctf_team)
-			continue;
-		if (OnSameTeam(ent, other))
-			continue;
-		if (other->safety_time > level.time ||
-			other->client->invincible_framenum > level.framenum)
-			continue;
-		if (ML_TargetExposure(ent, other) <= 0.0f)
+		if (!ML_TargetSolution(ent, other, target_point, NULL))
 			continue;
 
-		VectorSubtract(other->s.origin, ent->s.origin, toward);
+		ML_TargetEyePoint(ent, eye);
+		VectorSubtract(target_point, eye, toward);
 		if (VectorLength(toward) <= 0.001f)
 			continue;
 		vectoangles(toward, target_angles);
@@ -267,6 +290,7 @@ static uint32_t ML_ControlSource(edict_t *ent)
 static uint32_t ML_DebugFlags(edict_t *ent, float visible)
 {
 	uint32_t flags = 0;
+	uint32_t life_epoch;
 
 	if (!ent)
 		return flags;
@@ -276,7 +300,7 @@ static uint32_t ML_DebugFlags(edict_t *ent, float visible)
 		flags |= ML_ENTITY_BOT;
 	if (ent->client && ent->client->zc.ml_enabled)
 		flags |= ML_ENTITY_ML;
-	if (visible > 0.0f)
+	if (fabsf(visible) > 0.0f)
 		flags |= ML_ENTITY_VISIBLE;
 	if (ent->deadflag)
 		flags |= ML_ENTITY_DEAD;
@@ -305,6 +329,17 @@ static uint32_t ML_DebugFlags(edict_t *ent, float visible)
 		flags |= ML_ENTITY_GROUNDED;
 	if (ent->client && (ent->client->ps.pmove.pm_flags & PMF_ON_GROUND))
 		flags |= ML_ENTITY_PM_ON_GROUND;
+	if (ent->client && (ent->client->ps.pmove.pm_flags & PMF_DUCKED))
+		flags |= ML_ENTITY_DUCKED;
+	if (ent->client)
+	{
+		/* Upper flag bits carry a compact connection/life epoch. Combined
+		   with edict_index, this prevents a five-tick thermal trail from being
+		   inherited by a respawn or a new client that reuses the same slot. */
+		life_epoch = ((uint32_t)ent->client->resp.enterframe ^
+			((uint32_t)(ent->client->respawn_time * 10.0f) << 5)) & 0x3FFFu;
+		flags |= life_epoch << ML_ENTITY_EPOCH_SHIFT;
+	}
 	return flags;
 }
 
@@ -335,6 +370,8 @@ static void ML_FillActionDebug(ml_action_debug_t *dst, zgcl_t *zc)
 	dst->hook          = (uint32_t)zc->ml_hook;
 	if (zc->ml_fire_suppressed)
 		dst->_pad |= ML_FIRE_GATE_SUPPRESSED;
+	dst->_pad |= ((uint32_t)(zc->ml_hit_streak > 255
+		? 255 : zc->ml_hit_streak)) << ML_HIT_STREAK_SHIFT;
 }
 
 /* Pack the bot's current state into an ml_obs_t structure. */
@@ -344,8 +381,14 @@ void ML_PackObs(edict_t *ent, ml_obs_t *obs)
 	edict_t   *other;
 	vec3_t    rel;
 	vec3_t    rel_local;
+	vec3_t    rel_velocity;
+	vec3_t    velocity_local;
+	vec3_t    target_point;
+	vec3_t    eye;
 	vec3_t    forward, right, up;
 	vec3_t    view_angles;
+	float     exposure;
+	qboolean  shooter_protected;
 	zgcl_t    *zc = &ent->client->zc;
 
 	memset(obs, 0, sizeof(*obs));
@@ -356,6 +399,8 @@ void ML_PackObs(edict_t *ent, ml_obs_t *obs)
 	   client->v_angle[PITCH] / 3.  The policy, local target basis, and fire
 	   gate must all use the full-resolution player view instead. */
 	VectorCopy(ent->client->v_angle, view_angles);
+	shooter_protected = ent->safety_time > level.time ||
+		ent->client->invincible_framenum > level.framenum;
 	obs->yaw      = view_angles[YAW];
 	obs->pitch    = view_angles[PITCH];
 
@@ -374,6 +419,7 @@ void ML_PackObs(edict_t *ent, ml_obs_t *obs)
 
 	/* ── visible entities (other clients only for now) ─────── */
 	AngleVectors(view_angles, forward, right, up);
+	ML_TargetEyePoint(ent, eye);
 	n = 0;
 	for (i = 1; i <= maxclients->value && n < ML_MAX_ENTITIES; i++)
 	{
@@ -388,17 +434,29 @@ void ML_PackObs(edict_t *ent, ml_obs_t *obs)
 		    (other->lithium_flags & LITHIUM_OBSERVER))
 			continue;
 
-		VectorSubtract(other->s.origin, ent->s.origin, rel);
+		exposure = 0.0f;
+		if (!ML_TargetSolution(ent, other, target_point, &exposure))
+			continue;
+
+		VectorSubtract(target_point, eye, rel);
 		rel_local[0] = DotProduct(rel, forward);
 		rel_local[1] = DotProduct(rel, right);
 		rel_local[2] = DotProduct(rel, up);
-		VectorCopy(rel_local,       obs->entities[n].rel_pos);
-		VectorCopy(other->velocity, obs->entities[n].vel);
+		VectorCopy(rel_local, obs->entities[n].rel_pos);
+
+		VectorSubtract(other->velocity, ent->velocity, rel_velocity);
+		velocity_local[0] = DotProduct(rel_velocity, forward);
+		velocity_local[1] = DotProduct(rel_velocity, right);
+		velocity_local[2] = DotProduct(rel_velocity, up);
+		VectorCopy(velocity_local, obs->entities[n].vel);
+		/* Signed exposure preserves sensing during spawn protection without
+		   creating a false fire label: magnitude is the exact clear fraction,
+		   positive means actionable now, negative means track/aim only. */
+		if (shooter_protected)
+			exposure = -exposure;
 		obs->entities[n].health    = (float)other->health;
-		obs->entities[n].is_enemy  = ctf->value
-			? (other->client->resp.ctf_team != ent->client->resp.ctf_team ? 1.0f : 0.0f)
-			: 1.0f;
-		obs->entities[n].visible   = ML_TargetExposure(ent, other);
+		obs->entities[n].is_enemy  = ML_TargetIsHostile(ent, other) ? 1.0f : 0.0f;
+		obs->entities[n].visible   = exposure;
 		ML_FillDebugIdentity(&obs->entity_debug[n], other, obs->entities[n].visible);
 		n++;
 	}

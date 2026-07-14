@@ -410,13 +410,23 @@ qboolean CheckTeamDamage (edict_t *targ, edict_t *attacker)
  * hit. The first hit establishes contact and receives no extra reward. A kill
  * receives the multiplier it earned, then clears the chain so an edict slot
  * reused by a later player cannot inherit it. */
-static float ML_HitStreakBonus(zgcl_t *zc, int target_edict, qboolean killed)
+static int ML_HitTargetEpoch(edict_t *target)
+{
+	if (!target || !target->client)
+		return 0;
+	return (int)(((uint32_t)target->client->resp.enterframe ^
+		((uint32_t)(target->client->respawn_time * 10.0f) << 5)) & 0x3FFFu);
+}
+
+static float ML_HitStreakBonus(zgcl_t *zc, int target_edict,
+	int target_epoch, qboolean killed)
 {
 	float multiplier;
 	int frame_delta;
 
 	frame_delta = level.framenum - zc->ml_last_hit_frame;
 	if (zc->ml_hit_target_edict == target_edict &&
+		zc->ml_hit_target_epoch == target_epoch &&
 		zc->ml_last_hit_frame > 0 && frame_delta >= 0 &&
 		frame_delta <= ML_HIT_CONTACT_FRAMES)
 	{
@@ -425,6 +435,7 @@ static float ML_HitStreakBonus(zgcl_t *zc, int target_edict, qboolean killed)
 	else
 	{
 		zc->ml_hit_target_edict = target_edict;
+		zc->ml_hit_target_epoch = target_epoch;
 		zc->ml_hit_streak = 1;
 	}
 	zc->ml_last_hit_frame = level.framenum;
@@ -436,6 +447,7 @@ static float ML_HitStreakBonus(zgcl_t *zc, int target_edict, qboolean killed)
 	if (killed)
 	{
 		zc->ml_hit_target_edict = 0;
+		zc->ml_hit_target_epoch = 0;
 		zc->ml_hit_streak = 0;
 		zc->ml_last_hit_frame = 0;
 	}
@@ -675,7 +687,8 @@ void T_Damage (edict_t *targ, edict_t *inflictor, edict_t *attacker, vec3_t dir,
 		{
 			zgcl_t *az = &attacker->client->zc;
 			float focus_multiplier = ML_HitStreakBonus(
-				az, (int)(targ - g_edicts), targ->health <= 0);
+				az, (int)(targ - g_edicts), ML_HitTargetEpoch(targ),
+				targ->health <= 0);
 			az->ml_reward_damage_dealt += (float)reward_take;
 			/* Reward sustained, actionable engagement. Target switches and
 			   gaps over three seconds restart at the unbonused first hit. */
