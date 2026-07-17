@@ -3,6 +3,7 @@
 
 #include "g_local.h"
 #include "ml_client_telemetry.h"
+#include "ml_obs.h"
 #include "bot.h"
 #include "rune_bits.h"
 
@@ -311,6 +312,8 @@ static int CheckArmor (edict_t *ent, vec3_t point, vec3_t normal, int damage, in
 void M_ReactToDamage (edict_t *targ, edict_t *attacker)
 {
 	//WF
+	(void)targ;
+	(void)attacker;
 	return;
 	/*
 	if (!(attacker->client) && !(attacker->svflags & SVF_MONSTER))
@@ -412,10 +415,7 @@ qboolean CheckTeamDamage (edict_t *targ, edict_t *attacker)
  * reused by a later player cannot inherit it. */
 static int ML_HitTargetEpoch(edict_t *target)
 {
-	if (!target || !target->client)
-		return 0;
-	return (int)(((uint32_t)target->client->resp.enterframe ^
-		((uint32_t)(target->client->respawn_time * 10.0f) << 5)) & 0x3FFFu);
+	return (int)ML_ClientLifeEpoch(target);
 }
 
 static float ML_HitStreakBonus(zgcl_t *zc, int target_edict,
@@ -689,6 +689,8 @@ void T_Damage (edict_t *targ, edict_t *inflictor, edict_t *attacker, vec3_t dir,
 			float focus_multiplier = ML_HitStreakBonus(
 				az, (int)(targ - g_edicts), ML_HitTargetEpoch(targ),
 				targ->health <= 0);
+			ML_CausalTargetEvent(attacker, targ, qtrue,
+				targ->health <= 0 ? qtrue : qfalse);
 			az->ml_reward_damage_dealt += (float)reward_take;
 			/* Reward sustained, actionable engagement. Target switches and
 			   gaps over three seconds restart at the unbonused first hit. */
@@ -726,6 +728,16 @@ void T_Damage (edict_t *targ, edict_t *inflictor, edict_t *attacker, vec3_t dir,
 				tz->ml_reward_damage_taken_prox += (float)reward_take * w;
 			}
 		}
+
+		/* Environmental attribution is independent from generic damage_taken:
+		   combat/self weapon damage can never open a hazard episode. */
+		if (targ->client && reward_take > 0 &&
+			(mod == MOD_WATER || mod == MOD_SLIME || mod == MOD_LAVA ||
+			 mod == MOD_CRUSH || mod == MOD_FALLING ||
+			 mod == MOD_TRIGGER_HURT || mod == MOD_TARGET_LASER ||
+			 mod == MOD_TARGET_BLASTER))
+			ML_CausalEnvironmentalDamage(targ, inflictor, mod, reward_take,
+				targ->health <= 0 ? qtrue : qfalse);
 
 		if (targ->health <= 0)
 		{

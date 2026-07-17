@@ -8,7 +8,10 @@
  */
 
 #include "ml_bridge.h"
+#include "ml_client_role.h"
+#include "ml_client_respawn_settle.h"
 #include "g_local.h"
+#include "ml_obs.h"
 
 #include <sys/socket.h>
 #include <netinet/in.h>
@@ -37,6 +40,18 @@ static int           g_initialized = 0;
 static int           g_teacher_fd = -1;
 static uint32_t      g_teacher_sequence = 0;
 static struct sockaddr_in g_teacher_addr;
+
+static int ml_action_valid(const ml_action_t *action) {
+    return action && action->magic == ML_ACT_MAGIC &&
+        action->vertical_intent < ML_VERTICAL_COUNT &&
+        action->fire <= 1 && action->hook <= 3 && action->weapon <= 9 &&
+        isfinite(action->move_forward) && isfinite(action->move_right) &&
+        isfinite(action->look_yaw) && isfinite(action->look_pitch) &&
+        fabsf(action->move_forward) <= 1.0001f &&
+        fabsf(action->move_right) <= 1.0001f &&
+        fabsf(action->look_yaw) <= 45.0001f &&
+        fabsf(action->look_pitch) <= 30.0001f;
+}
 
 static float ml_teacher_clamp(float value, float low, float high) {
     return value < low ? low : (value > high ? high : value);
@@ -113,7 +128,6 @@ void ML_TeacherSend(edict_t *ent, const ml_obs_t *before,
     sample.flags = grounded_before ? 1u : 0u;
     strncpy(sample.map_name, level.mapname, sizeof(sample.map_name) - 1);
     sample.obs = *before;
-
     action = &sample.action;
     action->magic = ML_ACT_MAGIC;
     action->tick = sample.tick;
@@ -135,9 +149,21 @@ void ML_TeacherSend(edict_t *ent, const ml_obs_t *before,
         DotProduct(teacher_velocity, forward) / 320.0f, -1.0f, 1.0f);
     action->move_right = ml_teacher_clamp(
         DotProduct(teacher_velocity, right) / 320.0f, -1.0f, 1.0f);
-    action->jump = (uint8_t)(
-        (grounded_before && !ent->groundentity) ||
-        ent->velocity[2] > velocity_z_before + 50.0f);
+    if (before->water_vertical_mode > 0.5f) {
+        if (ent->velocity[2] > velocity_z_before + 50.0f)
+            action->vertical_intent = ML_VERTICAL_UP_OR_JUMP;
+        else if (ent->velocity[2] < velocity_z_before - 50.0f)
+            action->vertical_intent = ML_VERTICAL_DOWN_OR_CROUCH;
+        else
+            action->vertical_intent = ML_VERTICAL_NEUTRAL;
+    } else if (ent->client->ps.pmove.pm_flags & PMF_DUCKED) {
+        action->vertical_intent = ML_VERTICAL_DOWN_OR_CROUCH;
+    } else if ((grounded_before && !ent->groundentity) ||
+        ent->velocity[2] > velocity_z_before + 50.0f) {
+        action->vertical_intent = ML_VERTICAL_UP_OR_JUMP;
+    } else {
+        action->vertical_intent = ML_VERTICAL_NEUTRAL;
+    }
     action->fire = (uint8_t)((ent->client->buttons & BUTTON_ATTACK) != 0);
     hook_after = ent->client->hook_on || ent->client->ctf_grapple != NULL;
     action->hook = (uint8_t)(
@@ -145,6 +171,8 @@ void ML_TeacherSend(edict_t *ent, const ml_obs_t *before,
         hook_before && !hook_after ? 3 :
         hook_after ? 2 : 0);
     action->weapon = ml_teacher_weapon(ent);
+
+    ML_PackCausalTelemetry(ent, &sample.causal, 1);
 
     sendto(g_teacher_fd, &sample, sizeof(sample), MSG_DONTWAIT,
            (struct sockaddr *)&g_teacher_addr, sizeof(g_teacher_addr));
@@ -186,6 +214,7 @@ int ML_BotInit(int bot_slot) {
     /* default action: stand still */
     memset(&s->last_action, 0, sizeof(s->last_action));
     s->last_action.magic = ML_ACT_MAGIC;
+    s->last_action.vertical_intent = ML_VERTICAL_NEUTRAL;
     s->last_action_tick = 0;
 
     gi.dprintf("ML: bot slot %d → UDP port %d\n", bot_slot, s->port);
@@ -206,9 +235,10 @@ int ML_BotStep(int bot_slot, const ml_obs_t *obs, ml_action_t *act,
        previous frame is far better than discarding it and coasting. */
     while (1) {
         ml_action_t incoming;
-        ssize_t n = recv(s->fd, &incoming, sizeof(incoming), MSG_DONTWAIT);
+        ssize_t n = recv(s->fd, &incoming, sizeof(incoming),
+                         MSG_DONTWAIT | MSG_TRUNC);
         if (n == sizeof(incoming)) {
-            if (incoming.magic == ML_ACT_MAGIC &&
+            if (ml_action_valid(&incoming) &&
                 incoming.tick > s->last_action_tick &&
                 (!got_queued || incoming.tick >= queued_action.tick)) {
                 queued_action = incoming;
@@ -255,10 +285,10 @@ int ML_BotStep(int bot_slot, const ml_obs_t *obs, ml_action_t *act,
 
     while (1) {
         ml_action_t incoming;
-        ssize_t n = recv(s->fd, &incoming, sizeof(incoming), 0);
+        ssize_t n = recv(s->fd, &incoming, sizeof(incoming), MSG_TRUNC);
         if (n < 0)
             break;
-        if (n == sizeof(incoming) && incoming.magic == ML_ACT_MAGIC) {
+        if (n == sizeof(incoming) && ml_action_valid(&incoming)) {
             if (incoming.tick == obs->tick) {
                 s->last_action = incoming;
                 s->last_action_tick = incoming.tick;
@@ -315,12 +345,12 @@ int ML_RecvAction(int bot_slot, uint32_t tick, ml_action_t *act,
                                  stack into a multi-second stall */
         setsockopt(s->fd, SOL_SOCKET, SO_RCVTIMEO, &btv, sizeof(btv));
         while (1) {
-            n = recv(s->fd, &incoming, sizeof(incoming), 0);
+            n = recv(s->fd, &incoming, sizeof(incoming), MSG_TRUNC);
             if (n < 0) {
                 if (errno == EINTR) continue;
                 break;                       /* timeout — not ready yet */
             }
-            if (n == sizeof(incoming) && incoming.magic == ML_ACT_MAGIC) {
+            if (n == sizeof(incoming) && ml_action_valid(&incoming)) {
                 s->last_action = incoming;
                 s->last_action_tick = incoming.tick;
                 *act = incoming;
@@ -350,12 +380,12 @@ int ML_RecvAction(int bot_slot, uint32_t tick, ml_action_t *act,
 
     while (1) {
         ml_action_t incoming;
-        ssize_t n = recv(s->fd, &incoming, sizeof(incoming), 0);
+        ssize_t n = recv(s->fd, &incoming, sizeof(incoming), MSG_TRUNC);
         if (n < 0) {
             if (errno == EINTR) continue;
             break;                           /* timeout */
         }
-        if (n == sizeof(incoming) && incoming.magic == ML_ACT_MAGIC &&
+        if (n == sizeof(incoming) && ml_action_valid(&incoming) &&
             incoming.tick == tick) {
             s->last_action = incoming;
             s->last_action_tick = incoming.tick;
@@ -377,7 +407,8 @@ int ML_SendObsOnly(int bot_slot, const ml_obs_t *obs) {
     /* drain any stale queued actions so the socket buffer stays clean */
     while (1) {
         ml_action_t incoming;
-        ssize_t n = recv(s->fd, &incoming, sizeof(incoming), MSG_DONTWAIT);
+        ssize_t n = recv(s->fd, &incoming, sizeof(incoming),
+                         MSG_DONTWAIT | MSG_TRUNC);
         if (n >= 0) continue;               /* discard stale packet, keep draining */
         if (errno == EINTR) continue;
         break;                              /* EAGAIN/EWOULDBLOCK or real error */
@@ -450,6 +481,14 @@ typedef struct {
 
 static hook_zone_t g_hook_zones[MAX_HOOK_ZONES];
 static int         g_hook_zone_count = 0;
+
+#define ML_HOOK_REQUIRED_FLAG 4
+#define ML_HOOK_ZONE_MATCH_DISTANCE 96.0f
+#define ML_HOOK_RECOVERY_WALK_BUDGET_TICKS 15
+#define ML_CAUSAL_ENV_SOURCE_CLEAR_TICKS 3
+
+extern lvar_t *hook_speed;
+extern lvar_t *hook_pullspeed;
 
 void ML_LoadHookZones(const char *mapname)
 {
@@ -537,4 +576,418 @@ void ML_FillHookZones(edict_t *ent, ml_obs_t *obs)
         out++;
     }
     obs->hook_zone_count = (uint32_t)out;
+}
+
+static uint32_t ml_causal_hash(const void *data, size_t length, uint32_t hash)
+{
+    const unsigned char *bytes = data;
+    size_t i;
+    for (i = 0; i < length; i++) {
+        hash ^= bytes[i];
+        hash *= 16777619u;
+    }
+    return hash;
+}
+
+static uint32_t ml_crouch_edge_id(edict_t *ent)
+{
+    int32_t cell[3];
+    uint32_t hash = 2166136261u;
+    int i;
+
+    for (i = 0; i < 3; i++)
+        cell[i] = (int32_t)floorf(ent->s.origin[i] / 64.0f);
+    hash = ml_causal_hash(level.mapname,
+        strnlen(level.mapname, MAX_QPATH), hash);
+    hash = ml_causal_hash(cell, sizeof(cell), hash);
+    return hash ? hash : 1u;
+}
+
+static qboolean ml_standing_blocked(edict_t *ent)
+{
+    vec3_t mins = {-16.0f, -16.0f, -24.0f};
+    vec3_t maxs = {16.0f, 16.0f, 32.0f};
+    /* Crouch-edge authority is structural.  MASK_PLAYERSOLID includes live
+       clients, which would turn a temporary body overlap into a rewardable
+       low-clearance edge. */
+    trace_t trace = gi.trace(ent->s.origin, mins, maxs, ent->s.origin,
+        ent, MASK_DEADSOLID);
+    return trace.startsolid || trace.allsolid;
+}
+
+static qboolean ml_current_environmental_source(edict_t *ent, int mod)
+{
+    if (!ent)
+        return qfalse;
+    if (mod == MOD_LAVA)
+        return (ent->watertype & CONTENTS_LAVA) != 0;
+    if (mod == MOD_SLIME)
+        return (ent->watertype & CONTENTS_SLIME) != 0;
+    if (mod == MOD_WATER)
+        return ent->waterlevel == 3;
+    /* Falling/crusher/hurt source attribution is cleared only after a
+       supported, non-solid pose is observed; this is causal engine state,
+       not Atlas safe-arrival authority or a generic no-damage timer. */
+    return !ent->groundentity || ml_standing_blocked(ent);
+}
+
+static int ml_find_hook_zone(const float *anchor)
+{
+    float best = ML_HOOK_ZONE_MATCH_DISTANCE * ML_HOOK_ZONE_MATCH_DISTANCE;
+    int best_index = -1;
+    int i;
+
+    if (!anchor)
+        return -1;
+    for (i = 0; i < g_hook_zone_count; i++) {
+        float dx = g_hook_zones[i].anchor[0] - anchor[0];
+        float dy = g_hook_zones[i].anchor[1] - anchor[1];
+        float dz = g_hook_zones[i].anchor[2] - anchor[2];
+        float distance = dx * dx + dy * dy + dz * dz;
+        if (distance <= best) {
+            best = distance;
+            best_index = i;
+        }
+    }
+    return best_index;
+}
+
+int ML_HookNecessityBudgetProven(float walk_distance_lower_bound,
+    float hook_travel_seconds, int zone_required)
+{
+    const float budget_seconds = FRAMETIME *
+        ML_HOOK_RECOVERY_WALK_BUDGET_TICKS;
+    return zone_required && isfinite(walk_distance_lower_bound) &&
+        isfinite(hook_travel_seconds) && walk_distance_lower_bound >
+            320.0f * budget_seconds && hook_travel_seconds >= 0.0f &&
+        hook_travel_seconds <= budget_seconds;
+}
+
+int ML_CausalHookFireAccepted(int hook_out, float current_time,
+    float last_hook_time, float delay_seconds)
+{
+    return !hook_out && isfinite(current_time) && isfinite(last_hook_time) &&
+        isfinite(delay_seconds) &&
+        current_time >= last_hook_time + delay_seconds;
+}
+
+int ML_CausalHookOriginValid(uint32_t current_tick, uint32_t attempt_tick,
+    uint32_t attempt_generation, int require_generation)
+{
+    if (!attempt_tick || attempt_tick > current_tick)
+        return 0;
+    if (require_generation)
+        return attempt_generation > 0 &&
+            attempt_generation <= ML_ACTION_GENERATION_COUNT;
+    return attempt_generation == 0;
+}
+
+uint32_t ML_CausalEnvironmentalSourceEpoch(uint32_t current_epoch,
+    uint32_t current_source_id, uint32_t event_source_id,
+    int source_active, int clear_ticks)
+{
+    uint32_t next;
+    if (current_epoch && current_source_id == event_source_id &&
+        (source_active || clear_ticks < 30))
+        return current_epoch;
+    next = current_epoch + 1u;
+    return next ? next : 1u;
+}
+
+/* Conservative runtime proof for the frozen 15-tick necessity label.
+   Euclidean distance supplies a lower bound on every walking path: beyond
+   320 u/s * 1.5 s, no walk path can arrive inside the budget.  A matching
+   required sidecar zone, a currently clear anchor trace, a legal supported
+   landing hull, and a straight-line hook travel upper bound prove the hook
+   candidate.  Anything not proven stays unknown and is not trainable. */
+static qboolean ml_hook_necessity(edict_t *ent, const float *anchor,
+    int zone_index, qboolean *known)
+{
+    hook_zone_t *zone;
+    vec3_t eye, landing_down, walk_delta, hook_delta, pull_delta;
+    vec3_t mins = {-16.0f, -16.0f, -24.0f};
+    vec3_t maxs = {16.0f, 16.0f, 32.0f};
+    trace_t anchor_trace, landing_trace, support_trace;
+    float walk_lower, hook_seconds;
+
+    *known = qfalse;
+    if (!ent || !ent->client || zone_index < 0 ||
+        zone_index >= g_hook_zone_count || !anchor || !hook_speed ||
+        !hook_pullspeed || hook_speed->value <= 0.0f ||
+        hook_pullspeed->value <= 0.0f)
+        return qfalse;
+    zone = &g_hook_zones[zone_index];
+    VectorCopy(ent->s.origin, eye);
+    eye[2] += ent->viewheight;
+    anchor_trace = gi.trace(eye, NULL, NULL, zone->anchor, ent, MASK_SHOT);
+    if (anchor_trace.startsolid || anchor_trace.allsolid)
+        return qfalse;
+    if (anchor_trace.fraction < 0.999f) {
+        vec3_t trace_delta;
+        VectorSubtract(anchor_trace.endpos, zone->anchor, trace_delta);
+        if (VectorLength(trace_delta) > 8.0f &&
+            (!ent->client->hook || anchor_trace.ent != ent->client->hook->enemy))
+            return qfalse;
+    }
+    landing_trace = gi.trace(zone->landing, mins, maxs, zone->landing,
+        ent, MASK_PLAYERSOLID);
+    VectorCopy(zone->landing, landing_down);
+    landing_down[2] -= 48.0f;
+    support_trace = gi.trace(zone->landing, mins, maxs, landing_down,
+        ent, MASK_PLAYERSOLID);
+    if (landing_trace.startsolid || landing_trace.allsolid ||
+        support_trace.startsolid || support_trace.allsolid ||
+        support_trace.fraction >= 1.0f || support_trace.plane.normal[2] < 0.7f)
+        return qfalse;
+
+    VectorSubtract(zone->landing, ent->s.origin, walk_delta);
+    walk_delta[2] = 0.0f;
+    walk_lower = VectorLength(walk_delta);
+    VectorSubtract(anchor, ent->s.origin, hook_delta);
+    VectorSubtract(zone->landing, anchor, pull_delta);
+    hook_seconds = VectorLength(hook_delta) / hook_speed->value +
+        VectorLength(pull_delta) / hook_pullspeed->value;
+    *known = qtrue;
+    return ML_HookNecessityBudgetProven(walk_lower, hook_seconds,
+        (zone->flags & ML_HOOK_REQUIRED_FLAG) != 0) ? qtrue : qfalse;
+}
+
+void ML_CausalHookAttempt(edict_t *ent)
+{
+    zgcl_t *zc;
+    if (!ent || !ent->client)
+        return;
+    zc = &ent->client->zc;
+    zc->ml_hook_attempt_frame = level.framenum;
+    zc->ml_hook_attempt_tick = (uint32_t)level.framenum;
+    zc->ml_hook_action_generation = 0;
+    zc->ml_hook_attempted = 1;
+    zc->ml_hook_attached = 0;
+    zc->ml_hook_valid = 0;
+    zc->ml_hook_invalid = 0;
+    zc->ml_hook_necessity_known = 0;
+    zc->ml_hook_was_necessary = 0;
+    zc->ml_hook_zone_id = 0;
+    ML_CausalHookBindAction(ent);
+}
+
+void ML_CausalHookBindAction(edict_t *ent)
+{
+    zgcl_t *zc;
+    if (!ent || !ent->client)
+        return;
+    zc = &ent->client->zc;
+    if (!zc->ml_hook_attempted ||
+        zc->ml_hook_attempt_frame != level.framenum ||
+        !zc->ml_last_action_ok ||
+        zc->ml_last_action_tick != level.framenum || zc->ml_hook != 1 ||
+        !zc->ml_action_generation_valid)
+        return;
+    zc->ml_hook_attempt_tick = (uint32_t)zc->ml_last_action_tick;
+    zc->ml_hook_action_generation =
+        (uint32_t)zc->ml_action_generation + 1u;
+}
+
+void ML_CausalHookAttached(edict_t *ent, const float *anchor)
+{
+    zgcl_t *zc;
+    qboolean known;
+    int zone_index;
+
+    if (!ent || !ent->client)
+        return;
+    zc = &ent->client->zc;
+    zone_index = ml_find_hook_zone(anchor);
+    zc->ml_hook_attached = 1;
+    zc->ml_hook_valid = 1; /* Hook_Touch is the engine attach authority. */
+    zc->ml_hook_invalid = 0;
+    zc->ml_hook_zone_id = zone_index >= 0 ? (uint32_t)zone_index + 1u : 0u;
+    zc->ml_hook_was_necessary = ml_hook_necessity(ent, anchor, zone_index,
+        &known) ? 1 : 0;
+    zc->ml_hook_necessity_known = known ? 1 : 0;
+}
+
+void ML_PackCausalTelemetry(edict_t *ent, ml_causal_telemetry_t *causal,
+    int teacher_actual)
+{
+    zgcl_t *zc;
+    qboolean ducked, blocked, echo_valid, facts_complete, settling;
+    uint32_t role_flags;
+
+    memset(causal, 0, sizeof(*causal));
+    causal->magic = ML_CAUSAL_MAGIC;
+    causal->version = ML_CAUSAL_VERSION;
+    causal->packet_size = (uint32_t)sizeof(*causal);
+    causal->tick = (uint32_t)level.framenum;
+    if (!ent || !ent->client)
+        return;
+    zc = &ent->client->zc;
+    causal->client_life_epoch = ML_ClientLifeEpoch(ent);
+
+    ducked = (ent->client->ps.pmove.pm_flags & PMF_DUCKED) != 0;
+    blocked = ml_standing_blocked(ent);
+    if (ducked && blocked && !zc->ml_crouch_edge_active) {
+        zc->ml_crouch_edge_id = ml_crouch_edge_id(ent);
+        zc->ml_crouch_edge_epoch++;
+        if (!zc->ml_crouch_edge_epoch)
+            zc->ml_crouch_edge_epoch = 1;
+        zc->ml_crouch_edge_active = 1;
+        zc->ml_crouch_edge_entered = 1;
+    } else if (zc->ml_crouch_edge_active && !ducked && !blocked) {
+        zc->ml_crouch_edge_active = 0;
+        zc->ml_crouch_edge_completed = 1;
+    }
+
+    if (zc->ml_hook_attempt_frame > 0 && !zc->ml_hook_attached &&
+        !zc->ml_hook_invalid &&
+        level.framenum - zc->ml_hook_attempt_frame >=
+            ML_HOOK_RECOVERY_WALK_BUDGET_TICKS) {
+        zc->ml_hook_invalid = 1;
+        zc->ml_hook_necessity_known = 1;
+        zc->ml_hook_was_necessary = 0;
+    }
+
+    if (zc->ml_environmental_source_active && !ent->deadflag &&
+        zc->ml_environmental_damage == 0 &&
+        !ml_current_environmental_source(ent, zc->ml_environmental_mod) &&
+        (ent->groundentity || (ent->waterlevel >= 2 &&
+            !(ent->watertype & (CONTENTS_LAVA | CONTENTS_SLIME)))) &&
+        !blocked) {
+        zc->ml_environmental_source_clear_ticks++;
+        if (zc->ml_environmental_source_clear_ticks >=
+            ML_CAUSAL_ENV_SOURCE_CLEAR_TICKS) {
+            zc->ml_environmental_source_active = 0;
+            zc->ml_environmental_source_cleared = 1;
+        }
+    } else if (!zc->ml_environmental_source_active && !ent->deadflag &&
+        zc->ml_environmental_source_id &&
+        zc->ml_environmental_source_clear_ticks < 30) {
+        zc->ml_environmental_source_clear_ticks++;
+    }
+
+    causal->target_id = zc->ml_causal_target_edict > 0
+        ? (uint32_t)zc->ml_causal_target_edict : 0u;
+    causal->target_epoch = zc->ml_causal_target_epoch;
+    causal->environmental_source_id = zc->ml_environmental_source_id;
+    causal->environmental_source_epoch =
+        zc->ml_environmental_source_epoch;
+    causal->environmental_mod = zc->ml_environmental_mod > 0
+        ? (uint32_t)zc->ml_environmental_mod : 0u;
+    causal->environmental_damage = zc->ml_environmental_damage;
+    causal->crouch_edge_id = zc->ml_crouch_edge_id;
+    causal->crouch_edge_epoch = zc->ml_crouch_edge_epoch;
+    causal->echo_tick = teacher_actual ? causal->tick :
+        (zc->ml_last_action_tick > 0 ? (uint32_t)zc->ml_last_action_tick : 0u);
+    causal->action_generation = !teacher_actual &&
+        zc->ml_action_generation_valid
+        ? (uint32_t)zc->ml_action_generation + 1u : 0u;
+    causal->hook_zone_id = zc->ml_hook_zone_id;
+    causal->hook_attempt_tick = zc->ml_hook_attempt_tick;
+    causal->hook_action_generation = teacher_actual ? 0u :
+        zc->ml_hook_action_generation;
+
+    if (causal->target_id && causal->target_epoch)
+        causal->flags |= ML_CAUSAL_TARGET_VALID;
+    if (zc->ml_environmental_source_active)
+        causal->flags |= ML_CAUSAL_ENV_SOURCE_ACTIVE;
+    if (zc->ml_environmental_damage || zc->ml_environmental_death ||
+        zc->ml_environmental_source_active ||
+        zc->ml_environmental_source_cleared)
+        causal->flags |= ML_CAUSAL_ENV_SOURCE_EVIDENCE;
+    if (zc->ml_environmental_damage)
+        causal->flags |= ML_CAUSAL_ENV_DAMAGE;
+    if (zc->ml_environmental_death)
+        causal->flags |= ML_CAUSAL_ENV_DEATH;
+    if (zc->ml_environmental_source_cleared)
+        causal->flags |= ML_CAUSAL_ENV_SOURCE_CLEARED;
+    if (zc->ml_crouch_edge_active)
+        causal->flags |= ML_CAUSAL_CROUCH_EDGE_ACTIVE;
+    if (zc->ml_crouch_edge_entered)
+        causal->flags |= ML_CAUSAL_CROUCH_EDGE_ENTERED;
+    if (zc->ml_crouch_edge_completed)
+        causal->flags |= ML_CAUSAL_CROUCH_EDGE_COMPLETED;
+    if (zc->ml_hook_attempted)
+        causal->flags |= ML_CAUSAL_HOOK_ATTEMPTED;
+    if (zc->ml_hook_attached)
+        causal->flags |= ML_CAUSAL_HOOK_ATTACHED;
+    if (zc->ml_hook_valid)
+        causal->flags |= ML_CAUSAL_HOOK_VALID;
+    if (zc->ml_hook_invalid)
+        causal->flags |= ML_CAUSAL_HOOK_INVALID;
+    if (zc->ml_hook_necessity_known)
+        causal->flags |= ML_CAUSAL_HOOK_NECESSITY_KNOWN;
+    if (zc->ml_hook_was_necessary)
+        causal->flags |= ML_CAUSAL_HOOK_WAS_NECESSARY;
+    if (zc->ml_causal_target_hit)
+        causal->flags |= ML_CAUSAL_TARGET_HIT;
+    if (zc->ml_causal_target_killed)
+        causal->flags |= ML_CAUSAL_TARGET_KILLED;
+
+    /* This is private causal admission state, never policy observation.  A
+       routed packet earns the positive role fact only from the authoritative
+       ordinary-player state.  Teacher packets retain their separate contract. */
+    role_flags = teacher_actual ? 0u : ML_ClientRoleCausalFlags(ent);
+    causal->flags |= role_flags;
+
+    echo_valid = teacher_actual || (zc->ml_last_action_ok &&
+        zc->ml_last_action_tick > 0 && zc->ml_action_generation_valid);
+    facts_complete = causal->client_life_epoch != 0;
+    if (!teacher_actual && !(role_flags & ML_CAUSAL_ROLE_PLAYING))
+        facts_complete = qfalse;
+    settling = !teacher_actual &&
+        (zc->ml_respawn_settling_action ||
+        (ent->client->ps.pmove.pm_flags & PMF_TIME_TELEPORT));
+    if ((zc->ml_causal_target_hit || zc->ml_causal_target_killed) &&
+        !(causal->flags & ML_CAUSAL_TARGET_VALID))
+        facts_complete = qfalse;
+    if ((causal->flags & (ML_CAUSAL_ENV_SOURCE_EVIDENCE |
+            ML_CAUSAL_ENV_DAMAGE | ML_CAUSAL_ENV_DEATH |
+            ML_CAUSAL_ENV_SOURCE_CLEARED)) &&
+        (!causal->environmental_source_id ||
+         !causal->environmental_source_epoch ||
+         !causal->environmental_mod))
+        facts_complete = qfalse;
+    if ((causal->flags & (ML_CAUSAL_CROUCH_EDGE_ACTIVE |
+            ML_CAUSAL_CROUCH_EDGE_ENTERED |
+            ML_CAUSAL_CROUCH_EDGE_COMPLETED)) &&
+        (!causal->crouch_edge_id || !causal->crouch_edge_epoch))
+        facts_complete = qfalse;
+    if ((causal->flags & (ML_CAUSAL_HOOK_ATTEMPTED |
+            ML_CAUSAL_HOOK_ATTACHED | ML_CAUSAL_HOOK_VALID |
+            ML_CAUSAL_HOOK_INVALID | ML_CAUSAL_HOOK_NECESSITY_KNOWN |
+            ML_CAUSAL_HOOK_WAS_NECESSARY)) &&
+        !ML_CausalHookOriginValid(causal->tick,
+            causal->hook_attempt_tick, causal->hook_action_generation,
+            teacher_actual ? 0 : 1))
+        facts_complete = qfalse;
+    if (echo_valid)
+        causal->flags |= ML_CAUSAL_ECHO_VALID;
+    if (facts_complete)
+        causal->flags |= ML_CAUSAL_FACTS_COMPLETE;
+    if (ML_ClientCausalTransitionTrainable(
+        echo_valid, facts_complete, settling) &&
+        (teacher_actual ||
+        (role_flags & ML_CAUSAL_ROLE_PUBLIC_PM_NORMAL)))
+        causal->flags |= ML_CAUSAL_TRANSITION_TRAINABLE;
+
+    /* Consume one-frame event facts only after the packet owns them. */
+    zc->ml_causal_target_hit = 0;
+    zc->ml_causal_target_killed = 0;
+    zc->ml_environmental_damage = 0;
+    zc->ml_environmental_death = 0;
+    zc->ml_environmental_source_cleared = 0;
+    zc->ml_crouch_edge_entered = 0;
+    zc->ml_crouch_edge_completed = 0;
+    if (zc->ml_hook_attached || zc->ml_hook_invalid) {
+        zc->ml_hook_attempted = 0;
+        zc->ml_hook_attempt_frame = 0;
+        zc->ml_hook_attached = 0;
+        zc->ml_hook_valid = 0;
+        zc->ml_hook_invalid = 0;
+        zc->ml_hook_necessity_known = 0;
+        zc->ml_hook_was_necessary = 0;
+        zc->ml_hook_zone_id = 0;
+        zc->ml_hook_attempt_tick = 0;
+        zc->ml_hook_action_generation = 0;
+    }
 }

@@ -1,6 +1,7 @@
 #include <stdbool.h>
 #include "g_local.h"
 #include "ml_client_telemetry.h"
+#include "ml_client_respawn_settle.h"
 #include "m_player.h"
 #include "bot.h"
 
@@ -1132,9 +1133,19 @@ void respawn (edict_t *self)
 		// add a teleportation effect
 		self->s.event = EV_PLAYER_TELEPORT;
 
-		// hold in place briefly
-		self->client->ps.pmove.pm_flags = PMF_TIME_TELEPORT;
-		self->client->ps.pmove.pm_time = 14;
+
+		/* Routed training clients use the same stock post-respawn physics as
+		   every ordinary player.  Telemetry marks this interval nontrainable;
+		   it never changes the game law to manufacture actionability. */
+		ML_ClientApplyStockRespawnHold(&self->client->ps.pmove,
+			ML_ClientTelemetryActive(self));
+		if (ML_ClientTelemetryActive(self))
+			gi.dprintf("ML_FRAME_BARRIER_EVENT "
+				"event=respawn_teleport_hold slot=%d client_life_epoch=%u "
+				"active=1 pm_time=%d law=stock\n",
+				(int)(self - g_edicts - 1),
+				(uint32_t)self->client->resp.ml_life_epoch,
+				self->client->ps.pmove.pm_time);
 
 		self->client->respawn_time = level.time;
 
@@ -1236,6 +1247,12 @@ Called when a player connects to a server or respawns in
 a deathmatch.
 ============
 */
+/* Server-lifetime counters are deliberately outside gclient_t: InitClientResp
+   clears client_respawn_t on a new connection, so a counter stored only there
+   would return to one when an edict slot is reused and could alias a previous
+   target identity. */
+static uint32_t ml_life_epoch_by_slot[MAX_CLIENTS];
+
 void PutClientInServer (edict_t *ent)
 {
 	vec3_t	mins = {-16, -16, -24};
@@ -1254,6 +1271,9 @@ void PutClientInServer (edict_t *ent)
 
 	index = ent-g_edicts-1;
 	client = ent->client;
+	/* A dead routed client can respawn inside the same command/frame.  Save
+	   only that command's exact attribution before gclient_t is cleared. */
+	ML_ClientTelemetryCaptureRespawnAction(ent);
 
 	// deathmatch wipes most client data every spawn
 	if (deathmatch->value)
@@ -1300,6 +1320,17 @@ void PutClientInServer (edict_t *ent)
 	if (client->pers.health <= 0)
 		InitClientPersistant(client);
 	client->resp = resp;
+	/* Epoch zero means unavailable on the wire.  Allocate from a server-lifetime
+	   per-slot sequence so both respawns and disconnected-slot reuse receive a
+	   distinct identity. */
+	ml_life_epoch_by_slot[index]++;
+	if (!ml_life_epoch_by_slot[index])
+		ml_life_epoch_by_slot[index] = 1;
+	client->resp.ml_life_epoch = ml_life_epoch_by_slot[index];
+	/* Restore no gameplay, reward, target, or prior-life state.  This only
+	   makes the first alive telemetry attributable to the routed command that
+	   crossed the explicit life-epoch boundary. */
+	ML_ClientTelemetryRestoreRespawnAction(ent);
 
 	// copy some data from the client to the entity
 	FetchClientEntData (ent);
@@ -1966,6 +1997,10 @@ void ClientThink (edict_t *ent, usercmd_t *ucmd)
 		}
 
 	}
+
+	ML_ClientTelemetryFinalizeCommand(ent);
+
+	ML_ClientTelemetryApplyDeferredControls(ent);
 
 	client->oldbuttons = client->buttons;
 	client->buttons = ucmd->buttons;

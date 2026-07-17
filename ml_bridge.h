@@ -14,10 +14,41 @@
 #include <stdint.h>
 
 #define ML_BASE_PORT    27950   /* bot 0 = 27950, bot 1 = 27951, ... */
-#define ML_OBS_MAGIC    0x514D4C50  /* "QMLP": target-solution semantics */
-#define ML_ACT_MAGIC    0x514D4C41  /* "QMLA" */
-#define ML_TEACHER_MAGIC 0x5154335A /* "QT3Z" */
-#define ML_TEACHER_VERSION 2
+#define ML_PROTOCOL_GENERATION 2u
+#define ML_OBS_MAGIC    0x514D324F  /* "QM2O": multires/Atlas observation */
+#define ML_ACT_MAGIC    0x514D3241  /* "QM2A": multires/Atlas action */
+#define ML_TEACHER_MAGIC 0x5154345A /* "QT4Z" */
+#define ML_TEACHER_VERSION 4
+
+/* Private causal/debug facts.  This block is never embedded in ml_obs_t and
+   therefore can never become policy input by taking a public observation
+   slice.  Network-client and teacher packets carry this exact same contract. */
+#define ML_CAUSAL_MAGIC   0x514D3343u /* "QM3C" */
+#define ML_CAUSAL_VERSION 2u
+
+#define ML_CAUSAL_TARGET_VALID          (1u << 0)
+#define ML_CAUSAL_ENV_SOURCE_ACTIVE      (1u << 1)
+#define ML_CAUSAL_ENV_SOURCE_EVIDENCE    (1u << 2)
+#define ML_CAUSAL_ENV_DAMAGE            (1u << 3)
+#define ML_CAUSAL_ENV_DEATH             (1u << 4)
+#define ML_CAUSAL_ENV_SOURCE_CLEARED     (1u << 5)
+#define ML_CAUSAL_CROUCH_EDGE_ACTIVE     (1u << 6)
+#define ML_CAUSAL_CROUCH_EDGE_ENTERED    (1u << 7)
+#define ML_CAUSAL_CROUCH_EDGE_COMPLETED  (1u << 8)
+#define ML_CAUSAL_HOOK_ATTEMPTED         (1u << 9)
+#define ML_CAUSAL_HOOK_ATTACHED          (1u << 10)
+#define ML_CAUSAL_HOOK_VALID             (1u << 11)
+#define ML_CAUSAL_HOOK_NECESSITY_KNOWN   (1u << 12)
+#define ML_CAUSAL_HOOK_WAS_NECESSARY     (1u << 13)
+#define ML_CAUSAL_ECHO_VALID             (1u << 14)
+#define ML_CAUSAL_FACTS_COMPLETE         (1u << 15)
+#define ML_CAUSAL_TRANSITION_TRAINABLE   (1u << 16)
+#define ML_CAUSAL_TARGET_HIT              (1u << 17)
+#define ML_CAUSAL_TARGET_KILLED           (1u << 18)
+#define ML_CAUSAL_HOOK_INVALID            (1u << 19)
+#define ML_CAUSAL_ROLE_PLAYING             (1u << 20)
+#define ML_CAUSAL_ROLE_PUBLIC_PM_NORMAL    (1u << 21)
+#define ML_CAUSAL_FLAGS_MASK              ((1u << 22) - 1u)
 
 #define ML_MAX_ENTITIES 8       /* visible enemies/teammates in obs */
 #define ML_RAY_COUNT    16      /* directional depth-trace rays */
@@ -31,6 +62,11 @@
 #define ML_TERMINAL_NONE          0
 #define ML_TERMINAL_DEATH         1
 #define ML_TERMINAL_INTERMISSION  2
+
+#define ML_VERTICAL_DOWN_OR_CROUCH 0u
+#define ML_VERTICAL_NEUTRAL        1u
+#define ML_VERTICAL_UP_OR_JUMP     2u
+#define ML_VERTICAL_COUNT          3u
 
 #define ML_ENTITY_CLIENT  0x01
 #define ML_ENTITY_BOT     0x02
@@ -60,6 +96,7 @@
 #define ML_HIT_STREAK_MASK  0x0000FF00u
 #define ML_ACTION_GENERATION_SHIFT 16
 #define ML_ACTION_GENERATION_MASK  0x00FF0000u
+#define ML_ACTION_GENERATION_COUNT 192u
 
 /* ── Observation sent game.so → Python ───────────────────────────────── */
 
@@ -101,10 +138,13 @@ typedef struct {
     float    move_right;
     float    look_yaw;
     float    look_pitch;
-    uint32_t jump;
+    uint32_t vertical_intent;
+    int32_t  applied_upmove;
+    uint32_t actual_ducked;
+    uint32_t water_vertical_mode;
     uint32_t fire;
     uint32_t hook;
-    uint32_t _pad;
+    uint32_t flags;
 } ml_action_debug_t;
 
 typedef struct {
@@ -156,13 +196,15 @@ typedef struct {
     float           reward_offense;           /* offense-rune + same-target focus payoff */
     float           reward_survival;          /* recovery payoff w/ regen|vampire */
 
-    /* q2-ml-bot extended observation block — always sent. Appended to the
-       policy input ONLY when Q2_EXT_OBS=1 (Run B, fresh policy); Run A leaves
-       it out so the 206-dim checkpoint keeps resuming. */
+    /* Factual observation extension. This block is mandatory in protocol
+       generation 2 and is always part of the frozen 198-float factual input. */
     float           rune_flags[5];      /* resist, strength, haste, regen, vampire (0/1) */
     float           inbound_dmg_dir[3]; /* unit vector toward most recent attacker */
     float           inbound_dmg_dist;   /* units to that attacker, -1 if none */
     float           inbound_dmg_recency;/* 1.0 fresh → 0 by ~1s, decays per frame */
+    float           actual_ducked;      /* resulting PMF_DUCKED state */
+    float           standing_blocked;   /* standing hull cannot fit at origin */
+    float           water_vertical_mode;/* waterlevel >= 2 */
 
     uint8_t         is_terminal;    /* 1 on death/level-change */
     uint8_t         terminal_reason;/* ML_TERMINAL_* */
@@ -190,12 +232,40 @@ typedef struct {
     float       look_yaw;
     float       look_pitch;
 
-    /* buttons */
-    uint8_t     jump;
+    /* categorical vertical intent plus buttons */
+    uint8_t     vertical_intent; /* ML_VERTICAL_* */
     uint8_t     fire;
     uint8_t     hook;           /* 0=idle 1=fire 2=hold 3=release */
     uint8_t     weapon;         /* 0=no-change, 1-9=select weapon */
 } ml_action_t;
+
+/* Authoritative event attribution and local admission facts.  Environmental
+   source identity is damage-source provenance, never Atlas reward hazard
+   component identity. All identities use zero for unavailable.
+   action_generation stores generation+1 so zero cannot be confused with
+   modulo-generation zero. */
+typedef struct {
+    uint32_t magic;
+    uint32_t version;
+    uint32_t packet_size;
+    uint32_t flags;
+    uint32_t tick;
+    uint32_t client_life_epoch;
+    uint32_t target_id;
+    uint32_t target_epoch;
+    uint32_t environmental_source_id;
+    uint32_t environmental_source_epoch;
+    uint32_t environmental_mod;
+    uint32_t environmental_damage;
+    uint32_t crouch_edge_id;
+    uint32_t crouch_edge_epoch;
+    uint32_t echo_tick;
+    uint32_t action_generation;
+    uint32_t hook_zone_id;
+    uint32_t hook_attempt_tick;
+    uint32_t hook_action_generation;
+    uint32_t reserved;
+} ml_causal_telemetry_t;
 
 /* Passive 3ZB2 demonstration packet. Kept below the Tailscale MTU so one
    legacy-bot tick is always one UDP datagram. */
@@ -209,8 +279,18 @@ typedef struct {
     uint32_t    flags;       /* bit 0: grounded before action */
     char        map_name[32];
     ml_obs_t    obs;         /* state immediately before 3ZB2 acts */
+    ml_causal_telemetry_t causal; /* physically separate; never policy-visible */
     ml_action_t action;      /* 3ZB2 result projected into ML action space */
 } ml_teacher_sample_t;
+
+_Static_assert(sizeof(ml_action_debug_t) == 60,
+    "ml_action_debug_t wire size changed");
+_Static_assert(sizeof(ml_obs_t) == 1056, "ml_obs_t wire size changed");
+_Static_assert(sizeof(ml_action_t) == 28, "ml_action_t wire size changed");
+_Static_assert(sizeof(ml_causal_telemetry_t) == 80,
+    "causal telemetry wire size changed");
+_Static_assert(sizeof(ml_teacher_sample_t) == 1224,
+    "teacher sample wire size changed");
 
 
 /* ── C API (called from bot.c / Bot_Think) ───────────────────────────── */
@@ -250,6 +330,30 @@ void ML_TeacherSend(struct edict_s *ent, const ml_obs_t *before,
                     float yaw_before, float pitch_before,
                     float velocity_z_before, int grounded_before,
                     int hook_before);
+
+/* Pack and consume private per-transition causal events.  teacher_actual is
+   true only for a post-action 3ZB2 demonstration, whose action is observed
+   directly instead of generation-echoed over protocol 34. */
+void ML_PackCausalTelemetry(struct edict_s *ent, ml_causal_telemetry_t *causal,
+                            int teacher_actual);
+
+/* Runtime hook callbacks supply actual attach validity to the causal lane. */
+void ML_CausalHookAttempt(struct edict_s *ent);
+void ML_CausalHookBindAction(struct edict_s *ent);
+void ML_CausalHookAttached(struct edict_s *ent, const float *anchor);
+int ML_CausalHookFireAccepted(int hook_out, float current_time,
+                              float last_hook_time, float delay_seconds);
+int ML_CausalHookOriginValid(uint32_t current_tick, uint32_t attempt_tick,
+                             uint32_t attempt_generation,
+                             int require_generation);
+uint32_t ML_CausalEnvironmentalSourceEpoch(uint32_t current_epoch,
+                                           uint32_t current_source_id,
+                                           uint32_t event_source_id,
+                                           int source_active,
+                                           int clear_ticks);
+int ML_HookNecessityBudgetProven(float walk_distance_lower_bound,
+                                 float hook_travel_seconds,
+                                 int zone_required);
 
 /* Fill obs rays from server-side traces. */
 void ML_FillRays(struct edict_s *ent, ml_obs_t *obs);

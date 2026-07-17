@@ -39,6 +39,93 @@ static qboolean ML_TargetIsHostile(edict_t *ent, edict_t *other)
 	return !OnSameTeam(ent, other);
 }
 
+uint32_t ML_ClientLifeEpoch(edict_t *ent)
+{
+	if (!ent || !ent->client)
+		return 0;
+	return (uint32_t)ent->client->resp.ml_life_epoch;
+}
+
+static void ML_RecordCausalTarget(edict_t *owner, edict_t *target)
+{
+	zgcl_t *zc;
+	uint32_t epoch;
+
+	if (!owner || !owner->client || !target || !target->client)
+		return;
+	epoch = ML_ClientLifeEpoch(target);
+	if (!epoch)
+		return;
+	zc = &owner->client->zc;
+	zc->ml_causal_target_edict = (int)(target - g_edicts);
+	zc->ml_causal_target_epoch = epoch;
+	zc->ml_causal_target_frame = level.framenum;
+}
+
+void ML_CausalTargetEvent(edict_t *attacker, edict_t *target,
+	qboolean hit, qboolean killed)
+{
+	if (!attacker || !attacker->client || !target || !target->client)
+		return;
+	ML_RecordCausalTarget(attacker, target);
+	if (hit)
+		attacker->client->zc.ml_causal_target_hit = 1;
+	if (killed)
+		attacker->client->zc.ml_causal_target_killed = 1;
+}
+
+static uint32_t ML_Fnv1a(const void *data, size_t length, uint32_t hash)
+{
+	const unsigned char *bytes = data;
+	size_t i;
+
+	for (i = 0; i < length; i++) {
+		hash ^= bytes[i];
+		hash *= 16777619u;
+	}
+	return hash;
+}
+
+static uint32_t ML_EnvironmentalSourceId(edict_t *inflictor, int mod)
+{
+	uint32_t hash = 2166136261u;
+	uint32_t identity = 0;
+
+	hash = ML_Fnv1a(level.mapname, strnlen(level.mapname, MAX_QPATH), hash);
+	hash = ML_Fnv1a(&mod, sizeof(mod), hash);
+	/* This is source attribution, never the Atlas reward hazard component.
+	   World liquids and falling share one conservative source per MOD/map;
+	   entity-backed hurt/crush sources add stable map-edict identity. */
+	if (inflictor && inflictor != world)
+		identity = (uint32_t)(inflictor - g_edicts);
+	hash = ML_Fnv1a(&identity, sizeof(identity), hash);
+	return hash ? hash : 1u;
+}
+
+void ML_CausalEnvironmentalDamage(edict_t *target, edict_t *inflictor,
+	int mod, int damage, qboolean killed)
+{
+	zgcl_t *zc;
+	uint32_t source_id;
+
+	if (!target || !target->client || damage <= 0)
+		return;
+	zc = &target->client->zc;
+	source_id = ML_EnvironmentalSourceId(inflictor, mod);
+	zc->ml_environmental_source_epoch = ML_CausalEnvironmentalSourceEpoch(
+		zc->ml_environmental_source_epoch,
+		zc->ml_environmental_source_id, source_id,
+		zc->ml_environmental_source_active,
+		zc->ml_environmental_source_clear_ticks);
+	zc->ml_environmental_source_id = source_id;
+	zc->ml_environmental_source_active = 1;
+	zc->ml_environmental_source_clear_ticks = 0;
+	zc->ml_environmental_mod = mod;
+	zc->ml_environmental_damage += (uint32_t)damage;
+	if (killed)
+		zc->ml_environmental_death = 1;
+}
+
 /* One damageable-target predicate feeds observation sensing and both fire
    gates. Shooter protection is deliberately handled by the caller: a newly
    spawned player must still perceive/track enemies even though it cannot fire. */
@@ -100,8 +187,12 @@ qboolean ML_HasEngageableTarget(edict_t *ent, const vec3_t view_angles)
 		yaw_error = fabsf(ML_AngleDelta(view_angles[YAW], target_angles[YAW]));
 		pitch_error = fabsf(ML_AngleDelta(view_angles[PITCH], target_angles[PITCH]));
 		if (yaw_error <= ML_FIRE_YAW_DEGREES &&
-			pitch_error <= ML_FIRE_PITCH_DEGREES)
+			pitch_error <= ML_FIRE_PITCH_DEGREES) {
+			/* Bind the private target identity to the exact entity that made
+			   this authoritative fire/alignment decision true. */
+			ML_RecordCausalTarget(ent, other);
 			return qtrue;
+		}
 	}
 
 	return qfalse;
@@ -235,7 +326,8 @@ static void ML_UpdateStuckGuard(edict_t *ent, const ml_action_t *act)
 		return;
 
 	wants_move = (fabs(act->move_forward) > 0.15f ||
-		fabs(act->move_right) > 0.15f || act->jump || act->hook);
+		fabs(act->move_right) > 0.15f ||
+		act->vertical_intent != ML_VERTICAL_NEUTRAL || act->hook);
 
 	if (!ml_last_origin_valid[slot]) {
 		VectorCopy(ent->s.origin, ml_last_origin[slot]);
@@ -336,8 +428,7 @@ static uint32_t ML_DebugFlags(edict_t *ent, float visible)
 		/* Upper flag bits carry a compact connection/life epoch. Combined
 		   with edict_index, this prevents a five-tick thermal trail from being
 		   inherited by a respawn or a new client that reuses the same slot. */
-		life_epoch = ((uint32_t)ent->client->resp.enterframe ^
-			((uint32_t)(ent->client->respawn_time * 10.0f) << 5)) & 0x3FFFu;
+		life_epoch = ML_ClientLifeEpoch(ent) & 0x3FFFu;
 		flags |= life_epoch << ML_ENTITY_EPOCH_SHIFT;
 	}
 	return flags;
@@ -354,7 +445,18 @@ static void ML_FillDebugIdentity(ml_entity_debug_t *dst, edict_t *ent, float vis
 	dst->flags          = ML_DebugFlags(ent, visible);
 }
 
-static void ML_FillActionDebug(ml_action_debug_t *dst, zgcl_t *zc)
+static qboolean ML_StandingBlocked(edict_t *ent)
+{
+	vec3_t mins = {-16.0f, -16.0f, -24.0f};
+	vec3_t maxs = {16.0f, 16.0f, 32.0f};
+	trace_t trace;
+
+	trace = gi.trace(ent->s.origin, mins, maxs, ent->s.origin, ent,
+		MASK_PLAYERSOLID);
+	return trace.startsolid || trace.allsolid;
+}
+
+static void ML_FillActionDebug(ml_action_debug_t *dst, edict_t *ent, zgcl_t *zc)
 {
 	memset(dst, 0, sizeof(*dst));
 	dst->tick          = (uint32_t)zc->ml_last_action_tick;
@@ -365,18 +467,24 @@ static void ML_FillActionDebug(ml_action_debug_t *dst, zgcl_t *zc)
 	dst->move_right    = zc->ml_move_right;
 	dst->look_yaw      = zc->ml_look_yaw;
 	dst->look_pitch    = zc->ml_look_pitch;
-	dst->jump          = (uint32_t)zc->ml_jump;
+	dst->vertical_intent = zc->ml_last_action_tick > 0
+		? (uint32_t)zc->ml_vertical_intent : ML_VERTICAL_NEUTRAL;
+	dst->applied_upmove = zc->ml_last_action_tick > 0
+		? (int32_t)zc->ml_applied_upmove : 0;
+	dst->actual_ducked = (uint32_t)((ent->client->ps.pmove.pm_flags &
+		PMF_DUCKED) != 0);
+	dst->water_vertical_mode = (uint32_t)(ent->waterlevel >= 2);
 	dst->fire          = (uint32_t)zc->ml_fire;
 	dst->hook          = (uint32_t)zc->ml_hook;
 	if (zc->ml_fire_suppressed)
-		dst->_pad |= ML_FIRE_GATE_SUPPRESSED;
+		dst->flags |= ML_FIRE_GATE_SUPPRESSED;
 	if (zc->ml_action_generation_valid)
 	{
 		/* Zero means missing attribution, so store generation plus one. */
-		dst->_pad |= ((uint32_t)(zc->ml_action_generation + 1) <<
+		dst->flags |= ((uint32_t)(zc->ml_action_generation + 1) <<
 			ML_ACTION_GENERATION_SHIFT) & ML_ACTION_GENERATION_MASK;
 	}
-	dst->_pad |= ((uint32_t)(zc->ml_hit_streak > 255
+	dst->flags |= ((uint32_t)(zc->ml_hit_streak > 255
 		? 255 : zc->ml_hit_streak)) << ML_HIT_STREAK_SHIFT;
 }
 
@@ -464,19 +572,38 @@ void ML_PackObs(edict_t *ent, ml_obs_t *obs)
 		obs->entities[n].is_enemy  = ML_TargetIsHostile(ent, other) ? 1.0f : 0.0f;
 		obs->entities[n].visible   = exposure;
 		ML_FillDebugIdentity(&obs->entity_debug[n], other, obs->entities[n].visible);
+		/* Damage/kill attribution wins for its event frame.  Otherwise the first
+		   deterministic actionable entity maintains target continuity through a
+		   bounded visibility gap. */
+		if (n == 0 && !zc->ml_causal_target_hit &&
+			!zc->ml_causal_target_killed &&
+			zc->ml_causal_target_frame != level.framenum)
+			ML_RecordCausalTarget(ent, other);
 		n++;
 	}
 	obs->entity_count = (uint32_t)n;
+	if (zc->ml_causal_target_frame > 0 &&
+		level.framenum - zc->ml_causal_target_frame > 30 &&
+		!zc->ml_causal_target_hit && !zc->ml_causal_target_killed) {
+		zc->ml_causal_target_edict = 0;
+		zc->ml_causal_target_epoch = 0;
+		zc->ml_causal_target_frame = 0;
+	}
 
 	/* ── rays / hook zones ────────────────────────────────── */
 	ML_FillRays(ent, obs);
 	ML_FillHookZones(ent, obs);
-	ML_FillActionDebug(&obs->action_debug, zc);
+	ML_FillActionDebug(&obs->action_debug, ent, zc);
 	if (ent->safety_time > level.time ||
 		ent->client->invincible_framenum > level.framenum)
-		obs->action_debug._pad |= ML_FIRE_GATE_PROTECTED;
+		obs->action_debug.flags |= ML_FIRE_GATE_PROTECTED;
 	if (ML_HasEngageableTarget(ent, ent->client->v_angle))
-		obs->action_debug._pad |= ML_FIRE_GATE_TARGET;
+		obs->action_debug.flags |= ML_FIRE_GATE_TARGET;
+
+	obs->actual_ducked = (ent->client->ps.pmove.pm_flags & PMF_DUCKED)
+		? 1.0f : 0.0f;
+	obs->standing_blocked = ML_StandingBlocked(ent) ? 1.0f : 0.0f;
+	obs->water_vertical_mode = ent->waterlevel >= 2 ? 1.0f : 0.0f;
 
 	/* ── audio ────────────────────────────────────────────── */
 	if (level.sound_entity && level.sound_entity_framenum >= level.framenum - 30)
@@ -611,7 +738,13 @@ void ML_ApplyAction(edict_t *ent, const ml_action_t *act)
 	zc->ml_move_right   = act->move_right;
 	zc->ml_look_yaw     = act->look_yaw;
 	zc->ml_look_pitch   = act->look_pitch;
-	zc->ml_jump         = act->jump;
+	zc->ml_vertical_intent = act->vertical_intent;
+	zc->ml_applied_upmove = act->vertical_intent == ML_VERTICAL_UP_OR_JUMP
+		? 320 : act->vertical_intent == ML_VERTICAL_DOWN_OR_CROUCH ? -320 : 0;
+	zc->ml_last_action_tick = (int)act->tick;
+	zc->ml_last_action_ok = act->tick == (uint32_t)level.framenum;
+	if (!zc->ml_last_action_ok)
+		zc->ml_timeout_count++;
 	zc->ml_fire         = act->fire && fire_allowed;
 	zc->ml_fire_suppressed = act->fire && !fire_allowed;
 	zc->ml_hook         = act->hook;
@@ -632,13 +765,17 @@ void ML_ApplyAction(edict_t *ent, const ml_action_t *act)
 	VectorNormalize(forward);
 	VectorNormalize(right);
 
-	if (ent->groundentity)
+	if (ent->waterlevel >= 2)
+	{
+		ent->velocity[2] += (float)zc->ml_applied_upmove * 0.25f;
+	}
+	else if (ent->groundentity)
 	{
 		VectorScale(forward, act->move_forward * forward_speed, ent->velocity);
 		VectorMA(ent->velocity, act->move_right * forward_speed, right, ent->velocity);
 
 		/* preserve gravity */
-		if (act->jump)
+		if (act->vertical_intent == ML_VERTICAL_UP_OR_JUMP)
 			ent->velocity[2] = VEL_BOT_JUMP;
 	}
 	else
@@ -648,6 +785,20 @@ void ML_ApplyAction(edict_t *ent, const ml_action_t *act)
 		ent->velocity[1] += forward[1] * act->move_forward * 30.0f;
 		ent->velocity[0] += right[0]   * act->move_right   * 30.0f;
 		ent->velocity[1] += right[1]   * act->move_right   * 30.0f;
+	}
+
+	if (ent->waterlevel < 2 &&
+		act->vertical_intent == ML_VERTICAL_DOWN_OR_CROUCH)
+	{
+		ent->client->ps.pmove.pm_flags |= PMF_DUCKED;
+		ent->maxs[2] = 4.0f;
+	}
+	else if (ent->waterlevel < 2 &&
+		act->vertical_intent != ML_VERTICAL_DOWN_OR_CROUCH &&
+		!ML_StandingBlocked(ent))
+	{
+		ent->client->ps.pmove.pm_flags &= ~PMF_DUCKED;
+		ent->maxs[2] = 32.0f;
 	}
 
 	/* ── weapon select ────────────────────────────────────── */

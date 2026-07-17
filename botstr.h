@@ -124,7 +124,8 @@ typedef struct zgcl_s
 	float		ml_look_pitch;
 	float		ml_look_base_yaw;	/* view at first ClientThink in this server frame */
 	float		ml_look_base_pitch;
-	int			ml_jump;
+	int			ml_vertical_intent;	/* ML_VERTICAL_* requested command */
+	int			ml_applied_upmove;	/* exact signed client/engine command echo */
 	int			ml_fire;
 	int			ml_fire_suppressed;	/* requested attack rejected by authoritative fire gate */
 	int			ml_hook;		/* 0=idle 1=fire 2=hold 3=release */
@@ -133,9 +134,39 @@ typedef struct zgcl_s
 	int			ml_action_generation_valid;
 	int			ml_last_action_tick;
 	int			ml_last_action_ok;
+	int			ml_respawn_settling_action; /* PMF_TIME_TELEPORT active at command entry */
 	int			ml_death_obs_sent;	/* terminal death obs sent once per death; cleared by respawn memset */
 	int			ml_intermission_obs_sent; /* terminal intermission obs sent once per intermission */
 	int			ml_timeout_count;
+	/* Private causal telemetry state.  These fields never enter ml_obs_t. */
+	int			ml_causal_target_edict;
+	unsigned int	ml_causal_target_epoch;
+	int			ml_causal_target_frame;
+	int			ml_causal_target_hit;
+	int			ml_causal_target_killed;
+	unsigned int	ml_environmental_source_id;
+	unsigned int	ml_environmental_source_epoch;
+	int			ml_environmental_source_active;
+	int			ml_environmental_source_clear_ticks;
+	int			ml_environmental_mod;
+	unsigned int	ml_environmental_damage;
+	int			ml_environmental_death;
+	int			ml_environmental_source_cleared;
+	unsigned int	ml_crouch_edge_id;
+	unsigned int	ml_crouch_edge_epoch;
+	int			ml_crouch_edge_active;
+	int			ml_crouch_edge_entered;
+	int			ml_crouch_edge_completed;
+	int			ml_hook_attempt_frame;
+	unsigned int	ml_hook_attempt_tick;
+	unsigned int	ml_hook_action_generation;
+	int			ml_hook_attempted;
+	int			ml_hook_attached;
+	int			ml_hook_valid;
+	int			ml_hook_invalid;
+	int			ml_hook_necessity_known;
+	int			ml_hook_was_necessary;
+	unsigned int	ml_hook_zone_id;
 } zgcl_t;
 
 #endif

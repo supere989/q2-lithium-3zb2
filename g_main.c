@@ -1,8 +1,10 @@
 #include "g_local.h"
 #include "ml_client_telemetry.h"
+#include "ml_client_respawn_settle.h"
 #include "bot.h"
 #include "ml_bridge.h"
 #include "ml_obs.h"
+#include "ml_qualification_drain.h"
 
 void Bot_SpawnCall(void);
 void Bot_LevelChange(void);
@@ -68,6 +70,11 @@ cvar_t	*sv_maplist;
 
 float	spawncycle;
 //ponko
+
+/* Set only by the sealed drain-sigkill qualification injection.  Unlike the
+ * public intermission cvar, this deadline cannot be shortened by console or
+ * rcon mutation after the map's test controls have been sealed. */
+static float ml_qualification_drain_hold_until;
 
 // 3ZB2
 cvar_t  *chedit;
@@ -430,6 +437,7 @@ void ExitLevel (void)
 	level.changemap = NULL;
 	level.exitintermission = 0;
 	level.intermissiontime = 0;
+	ml_qualification_drain_hold_until = 0;
 	ClientEndServerFrames ();
 
 	//PONKO
@@ -449,6 +457,39 @@ void ExitLevel (void)
 //ZOID
 	CTFInit();
 //ZOID
+}
+
+static void ML_GateEpochDrainExit(void)
+{
+	/* ClientThink and map rules may request an intermission exit between
+	   authoritative frames.  The request is admitted only after every active
+	   authenticated route has received its terminal and the drain witness is
+	   published. */
+	if (level.intermissiontime > 0 &&
+		ml_qualification_drain_hold_until > 0 &&
+		level.time >= ml_qualification_drain_hold_until)
+		level.exitintermission = qtrue;
+	if (level.exitintermission && ml_qualification_drain_hold_until > 0 &&
+		level.time < ml_qualification_drain_hold_until)
+	{
+		level.exitintermission = qfalse;
+		if (gi.cvar("sv_ml_frame_barrier_test_mode", "0", 0)->value)
+			gi.dprintf("ML_FRAME_BARRIER_EVENT "
+				"event=epoch_drain_exit_held server_frame=%d "
+				"terminals_complete=%d drain_hold_ms=%d\n",
+				level.framenum,
+				ML_ClientTelemetryEpochDrainReady() ? 1 : 0,
+				ML_DRAIN_SIGKILL_HOLD_MS);
+		return;
+	}
+	if (level.exitintermission && !ML_ClientTelemetryEpochDrainReady())
+	{
+		level.exitintermission = qfalse;
+		if (gi.cvar("sv_ml_frame_barrier_test_mode", "0", 0)->value)
+			gi.dprintf("ML_FRAME_BARRIER_EVENT "
+				"event=epoch_drain_exit_held server_frame=%d "
+				"terminals_complete=0\n", level.framenum);
+	}
 }
 
 /*
@@ -478,6 +519,7 @@ void G_RunFrame (void)
 	//WF
 
 	// exit intermissions
+	ML_GateEpochDrainExit();
 
 	if (level.exitintermission)
 	{
@@ -577,7 +619,70 @@ void G_RunFrame (void)
 		}
 
 		G_RunEntity (ent);
-		G_CheckOutOfBoundsKill(ent);
+	G_CheckOutOfBoundsKill(ent);
+	}
+
+	/* Isolated qualification controls. They are inert unless both the frame
+	 * barrier and its explicit test mode are enabled. */
+	if (gi.cvar("sv_ml_frame_barrier", "0", 0)->value &&
+		gi.cvar("sv_ml_frame_barrier_test_mode", "0", 0)->value)
+	{
+		static qboolean barrier_test_fired;
+		cvar_t *fault = gi.cvar("sv_ml_frame_barrier_test_fault", "", 0);
+		cvar_t *target_map = gi.cvar(
+			"sv_ml_frame_barrier_test_map", "q2dm2", 0);
+		int test_tick = (int)gi.cvar(
+			"sv_ml_frame_barrier_test_tick", "0", 0)->value;
+		if (!barrier_test_fired && level.framenum == test_tick + 1)
+		{
+			if (!Q_stricmp(fault->string, "death") &&
+				g_edicts[1].inuse && g_edicts[1].client)
+			{
+				barrier_test_fired = qtrue;
+				player_die(&g_edicts[1], &g_edicts[1], &g_edicts[1],
+					10000, vec3_origin);
+				gi.dprintf("ML_FRAME_BARRIER_EVENT event=death_injected "
+					"slot=0 action_tick=%d server_frame=%d\n",
+					test_tick, level.framenum);
+			}
+			else if (!Q_stricmp(fault->string, "same-life-hold") &&
+				g_edicts[1].inuse && g_edicts[1].client)
+			{
+				barrier_test_fired = qtrue;
+				ML_ClientApplyStockRespawnHold(
+					&g_edicts[1].client->ps.pmove, qtrue);
+				gi.dprintf("ML_FRAME_BARRIER_EVENT "
+					"event=same_life_hold_injected slot=0 action_tick=%d "
+					"server_frame=%d client_life_epoch=%u active=1 "
+					"pm_time=%d law=stock\n",
+					test_tick, level.framenum,
+					(uint32_t)g_edicts[1].client->resp.ml_life_epoch,
+					g_edicts[1].client->ps.pmove.pm_time);
+			}
+			else if (!Q_stricmp(fault->string, "epoch-drain") ||
+				!Q_stricmp(fault->string, "drain-sigkill"))
+			{
+				int drain_sigkill =
+					!Q_stricmp(fault->string, "drain-sigkill");
+				int drain_hold_ms = ML_QualificationDrainHoldMs(1, 1,
+					drain_sigkill);
+				barrier_test_fired = qtrue;
+				gi.cvar_set("intermission_maxtime",
+					drain_hold_ms ? "3" : "0");
+				ml_qualification_drain_hold_until = drain_hold_ms
+					? level.time + (float)drain_hold_ms / 1000.0f : 0;
+				BeginIntermission(CreateTargetChangeLevel(target_map->string));
+				gi.dprintf("ML_FRAME_BARRIER_EVENT event=intermission_injected "
+					"action_tick=%d server_frame=%d target_map=%s "
+					"drain_hold_ms=%d\n",
+					test_tick, level.framenum, target_map->string,
+					drain_hold_ms);
+				/* Deterministically exercise the same guard used for a real
+				 * ClientThink/map-rule exit request before terminal publication. */
+				level.exitintermission = qtrue;
+				ML_GateEpochDrainExit();
+			}
+		}
 	}
 
 	/* Bot-only ML servers never enter the engine's normal ClientThink path

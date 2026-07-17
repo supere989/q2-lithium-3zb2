@@ -63,6 +63,12 @@ void BeginIntermission (edict_t *targ)
 
 	if (level.intermissiontime)
 		return;		// already activated
+	if (gi.cvar("sv_ml_frame_barrier", "0", 0)->value)
+	{
+		gi.cvar_set("ml_frame_barrier_epoch_drain", "1");
+		gi.dprintf("ML_FRAME_BARRIER_EVENT event=epoch_drain_prepare "
+			"server_frame=%d source=intermission\n", level.framenum);
+	}
 
 //ZOID
 	if (deathmatch->value && ctf->value)
@@ -715,4 +721,3 @@ void G_SetSpectatorStats (edict_t *ent)
 	else
 		cl->ps.stats[STAT_CHASE] = 0;
 }
-

@@ -28,6 +28,7 @@
 // Code originally from Orange 2 Mod
 
 #include "g_local.h"
+#include "ml_bridge.h"
 #include "ml_hook_physics.h"
 
 lvar_t *hook_speed;
@@ -223,6 +224,7 @@ void Hook_Touch(edict_t *self, edict_t *other, cplane_t *plane, csurface_t *surf
 
 	// we are now anchored
 	self->owner->client->hook_on = qtrue;
+	ML_CausalHookAttached(self->owner, self->s.origin);
 //	self->owner->client->ps.pmove.pm_flags |= PMF_NO_PREDICTION;
 
 	// keep up with that thing
@@ -342,13 +344,13 @@ void Weapon_Hook_Fire(edict_t *ent) {
 	vec3_t start;
 	vec3_t offset;
 
-	if(ent->client->hook_out)
-		return;
-
-	// don't allow the client to fire the hook too rapidly
-	if(level.time < ent->client->last_hook_time + hook_delay->value)
+	/* This predicate is also the causal qualification seam: denied requests
+	   cannot open an authoritative hook-attempt episode. */
+	if(!ML_CausalHookFireAccepted(ent->client->hook_out, level.time,
+		ent->client->last_hook_time, hook_delay->value))
 		return;
 	ent->client->last_hook_time = level.time;
+	ML_CausalHookAttempt(ent);
 
     ent->client->hook_out = qtrue;
 	ent->client->hook_damage = 0;

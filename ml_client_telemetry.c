@@ -5,6 +5,8 @@
  * client_id to that connected player entity and unicasts only its ml_obs_t.
  */
 #include "ml_client_telemetry.h"
+#include "ml_client_lifecycle.h"
+#include "ml_client_respawn_settle.h"
 #include "ml_client_wire.h"
 #include "ml_obs.h"
 
@@ -17,19 +19,40 @@
 #include <sys/socket.h>
 #include <unistd.h>
 
+extern lvar_t *use_hook;
+
 typedef struct {
     qboolean active;
     struct sockaddr_in endpoint;
     char client_id[ML_CLIENT_ID_SIZE];
     uint32_t sequence;
+    qboolean has_last_packet;
+    ml_client_telemetry_t last_packet;
 } ml_client_route_t;
+
+typedef struct {
+    qboolean pending;
+    char client_id[ML_CLIENT_ID_SIZE];
+    uint32_t prior_life_epoch;
+    ml_client_lifecycle_echo_t echo;
+} ml_client_respawn_restore_t;
 
 static int ml_client_fd = -1;
 static int ml_client_bound_port = 0;
 static ml_client_route_t ml_client_routes[MAX_CLIENTS];
+static ml_client_respawn_restore_t ml_client_respawn_restore[MAX_CLIENTS];
 static cvar_t *ml_client_telemetry;
 static cvar_t *ml_client_telemetry_port;
 static cvar_t *ml_client_telemetry_token;
+static cvar_t *ml_client_frame_barrier;
+static cvar_t *ml_client_frame_barrier_test_mode;
+static cvar_t *ml_client_frame_barrier_test_fault;
+static cvar_t *ml_client_frame_barrier_test_tick;
+static cvar_t *ml_client_frame_barrier_epoch_drain;
+static cvar_t *ml_client_frame_barrier_map_epoch;
+static uint32_t ml_client_map_epoch;
+static char ml_client_epoch_map[32];
+static qboolean ml_client_epoch_drain_announced;
 
 #define ML_HARNESS_IMPULSE_BASE 16
 #define ML_HARNESS_ACTION_COUNT 40
@@ -65,6 +88,17 @@ static void ML_ClientTelemetryCvars(void)
     ml_client_telemetry = gi.cvar("ml_client_telemetry", "0", 0);
     ml_client_telemetry_port = gi.cvar("ml_client_telemetry_port", "27949", 0);
     ml_client_telemetry_token = gi.cvar("ml_client_telemetry_token", "", 0);
+    ml_client_frame_barrier = gi.cvar("sv_ml_frame_barrier", "0", 0);
+    ml_client_frame_barrier_test_mode = gi.cvar(
+        "sv_ml_frame_barrier_test_mode", "0", 0);
+    ml_client_frame_barrier_test_fault = gi.cvar(
+        "sv_ml_frame_barrier_test_fault", "", 0);
+    ml_client_frame_barrier_test_tick = gi.cvar(
+        "sv_ml_frame_barrier_test_tick", "0", 0);
+    ml_client_frame_barrier_epoch_drain = gi.cvar(
+        "ml_frame_barrier_epoch_drain", "0", 0);
+    ml_client_frame_barrier_map_epoch = gi.cvar(
+        "ml_frame_barrier_map_epoch", "0", 0);
 }
 
 static void ML_ClientTelemetryClose(void)
@@ -74,6 +108,8 @@ static void ML_ClientTelemetryClose(void)
     ml_client_fd = -1;
     ml_client_bound_port = 0;
     memset(ml_client_routes, 0, sizeof(ml_client_routes));
+    memset(ml_client_respawn_restore, 0,
+        sizeof(ml_client_respawn_restore));
 }
 
 static qboolean ML_ClientTelemetryOpen(void)
@@ -240,9 +276,24 @@ static void ML_SendRegistrationAck(const struct sockaddr_in *destination,
     ack.accepted = slot >= 0 ? 1u : 0u;
     ack.client_slot = slot >= 0 ? (uint32_t)slot : UINT32_MAX;
     ack.server_frame = (uint32_t)level.framenum;
+    ack.barrier_version = ML_CLIENT_FRAME_BARRIER_VERSION;
+    ack.barrier_capabilities = ML_CLIENT_FRAME_BARRIER_CAPABILITY;
+    ack.obs_magic = ML_OBS_MAGIC;
+    ack.action_magic = ML_ACT_MAGIC;
+    ack.obs_size = (uint32_t)sizeof(ml_obs_t);
+    ack.action_size = (uint32_t)sizeof(ml_action_t);
+    ack.causal_magic = ML_CAUSAL_MAGIC;
+    ack.causal_version = ML_CAUSAL_VERSION;
+    ack.causal_size = (uint32_t)sizeof(ml_causal_telemetry_t);
     strncpy(ack.client_id, registration->client_id, sizeof(ack.client_id) - 1);
     sendto(ml_client_fd, &ack, sizeof(ack), MSG_DONTWAIT,
         (const struct sockaddr *)destination, sizeof(*destination));
+    if (slot >= 0 && ml_client_frame_barrier &&
+        ml_client_frame_barrier->value)
+        gi.dprintf("ML_FRAME_BARRIER_EVENT event=route_ack slot=%d "
+            "client_id=%s server_frame=%u wire=%u barrier=%u capability=%u\n",
+            slot, registration->client_id, ack.server_frame, ack.version,
+            ack.barrier_version, ack.barrier_capabilities);
 }
 
 static void ML_ClientTelemetryPoll(void)
@@ -257,7 +308,7 @@ static void ML_ClientTelemetryPoll(void)
     {
         source_len = sizeof(source);
         received = recvfrom(ml_client_fd, &registration, sizeof(registration),
-            MSG_DONTWAIT, (struct sockaddr *)&source, &source_len);
+            MSG_DONTWAIT | MSG_TRUNC, (struct sockaddr *)&source, &source_len);
         if (received < 0 && errno == EINTR)
             continue;
         if (received < 0 && (errno == EAGAIN || errno == EWOULDBLOCK))
@@ -267,6 +318,15 @@ static void ML_ClientTelemetryPoll(void)
         if (registration.magic != ML_CLIENT_REGISTER_MAGIC ||
             registration.version != ML_CLIENT_WIRE_VERSION ||
             registration.packet_size != sizeof(registration) ||
+            (registration.barrier_capabilities &
+                ML_CLIENT_FRAME_BARRIER_CAPABILITY) == 0 ||
+            registration.obs_magic != ML_OBS_MAGIC ||
+            registration.action_magic != ML_ACT_MAGIC ||
+            registration.obs_size != sizeof(ml_obs_t) ||
+            registration.action_size != sizeof(ml_action_t) ||
+            registration.causal_magic != ML_CAUSAL_MAGIC ||
+            registration.causal_version != ML_CAUSAL_VERSION ||
+            registration.causal_size != sizeof(ml_causal_telemetry_t) ||
             !ML_ClientTokenEqual(registration.token))
         {
             ML_SendRegistrationAck(&source, &registration, -1);
@@ -310,6 +370,87 @@ qboolean ML_ClientTelemetryActive(edict_t *ent)
     return ml_client_routes[slot].active;
 }
 
+void ML_ClientTelemetryCaptureRespawnAction(edict_t *ent)
+{
+    int slot;
+    char current_id[ML_CLIENT_ID_SIZE];
+    ml_client_route_t *route;
+    ml_client_respawn_restore_t *restore;
+
+    if (!ent || !ent->client)
+        return;
+    slot = (int)(ent - g_edicts - 1);
+    if (slot < 0 || slot >= MAX_CLIENTS)
+        return;
+
+    route = &ml_client_routes[slot];
+    restore = &ml_client_respawn_restore[slot];
+    memset(restore, 0, sizeof(*restore));
+    if (!route->active)
+        return;
+
+    strncpy(current_id,
+        Info_ValueForKey(ent->client->pers.userinfo, "ml_client_id"),
+        sizeof(current_id) - 1);
+    current_id[sizeof(current_id) - 1] = '\0';
+    if (!ML_ClientIdEqual(current_id, route->client_id) ||
+        !ML_ClientLifecycleCaptureEcho(&restore->echo, &ent->client->zc,
+            qtrue, ent->deadflag != DEAD_NO))
+        return;
+
+    strncpy(restore->client_id, route->client_id,
+        sizeof(restore->client_id) - 1);
+    restore->prior_life_epoch =
+        (uint32_t)ent->client->resp.ml_life_epoch;
+    restore->pending = qtrue;
+}
+
+qboolean ML_ClientTelemetryRestoreRespawnAction(edict_t *ent)
+{
+    int slot;
+    char current_id[ML_CLIENT_ID_SIZE];
+    ml_client_route_t *route;
+    ml_client_respawn_restore_t saved;
+
+    if (!ent || !ent->client)
+        return qfalse;
+    slot = (int)(ent - g_edicts - 1);
+    if (slot < 0 || slot >= MAX_CLIENTS)
+        return qfalse;
+
+    saved = ml_client_respawn_restore[slot];
+    memset(&ml_client_respawn_restore[slot], 0,
+        sizeof(ml_client_respawn_restore[slot]));
+    if (!saved.pending)
+        return qfalse;
+
+    route = &ml_client_routes[slot];
+    strncpy(current_id,
+        Info_ValueForKey(ent->client->pers.userinfo, "ml_client_id"),
+        sizeof(current_id) - 1);
+    current_id[sizeof(current_id) - 1] = '\0';
+    if (!route->active ||
+        !ML_ClientIdEqual(saved.client_id, route->client_id) ||
+        !ML_ClientIdEqual(current_id, route->client_id))
+    {
+        ML_ClientTelemetryDeactivateRoute(route);
+        return qfalse;
+    }
+
+    ML_ClientLifecycleRestoreEcho(&ent->client->zc, &saved.echo);
+    ML_ClientTelemetryCvars();
+    if (ml_client_frame_barrier_test_mode->value)
+        gi.dprintf("ML_FRAME_BARRIER_EVENT event=respawn_action_restore "
+            "slot=%d client_id=%s prior_life_epoch=%u life_epoch=%u "
+            "action_tick=%d action_generation=%u route_preserved=1 "
+            "attribution=exact alive=1\n",
+            slot, route->client_id, saved.prior_life_epoch,
+            (uint32_t)ent->client->resp.ml_life_epoch,
+            saved.echo.action_tick,
+            (uint32_t)saved.echo.action_generation + 1u);
+    return qtrue;
+}
+
 void ML_ClientTelemetryClientDisconnected(edict_t *ent)
 {
     int slot;
@@ -322,6 +463,8 @@ void ML_ClientTelemetryClientDisconnected(edict_t *ent)
        same routed client must not roll Python's monotonic packet filter back
        to zero; a different client_id still resets both on registration. */
     ML_ClientTelemetryDeactivateRoute(&ml_client_routes[slot]);
+    memset(&ml_client_respawn_restore[slot], 0,
+        sizeof(ml_client_respawn_restore[slot]));
 }
 
 void ML_ClientTelemetryRecordCommand(edict_t *ent, usercmd_t *ucmd)
@@ -374,6 +517,10 @@ void ML_ClientTelemetryRecordCommand(edict_t *ent, usercmd_t *ucmd)
     same_decision = same_frame && requested_reliable_valid &&
         zc->ml_action_generation_valid &&
         requested_generation == zc->ml_action_generation;
+    zc->ml_respawn_settling_action =
+        ML_ClientRespawnSettlingAtEntry(
+            zc->ml_respawn_settling_action, same_decision,
+            ent->client->ps.pmove.pm_flags);
     if (!same_decision)
     {
         zc->ml_look_base_yaw = ent->client->v_angle[YAW];
@@ -395,7 +542,12 @@ void ML_ClientTelemetryRecordCommand(edict_t *ent, usercmd_t *ucmd)
     zc->ml_look_yaw = ML_ClientAngleDelta(
         intended_angles[YAW], zc->ml_look_base_yaw);
     zc->ml_look_pitch = intended_angles[PITCH] - zc->ml_look_base_pitch;
-    zc->ml_jump = ucmd->upmove > 0;
+    zc->ml_vertical_intent = ucmd->upmove > 0
+        ? ML_VERTICAL_UP_OR_JUMP
+        : ucmd->upmove < 0
+            ? ML_VERTICAL_DOWN_OR_CROUCH
+            : ML_VERTICAL_NEUTRAL;
+    zc->ml_applied_upmove = (int)ucmd->upmove;
     zc->ml_fire = (ucmd->buttons & BUTTON_ATTACK) != 0;
     if (requested_reliable_valid)
     {
@@ -413,7 +565,7 @@ void ML_ClientTelemetryRecordCommand(edict_t *ent, usercmd_t *ucmd)
         zc->ml_action_generation = 0;
         zc->ml_action_generation_valid = 0;
     }
-
+    ML_CausalHookBindAction(ent);
     /* A protocol client normally presses attack to leave the death screen.
        The policy's attack bit is target-gated, though, and a dead player can
        never have an engageable target.  Inject the lifecycle button only
@@ -423,18 +575,110 @@ void ML_ClientTelemetryRecordCommand(edict_t *ent, usercmd_t *ucmd)
         ucmd->buttons |= BUTTON_ATTACK;
 }
 
+void ML_ClientTelemetryFinalizeCommand(edict_t *ent)
+{
+    zgcl_t *zc;
+
+    if (!ent || !ent->client ||
+        (!ML_ClientTelemetryActive(ent) &&
+        !ML_ClientTelemetryIdentified(ent)))
+        return;
+    zc = &ent->client->zc;
+    if (!zc->ml_last_action_ok || zc->ml_last_action_tick != level.framenum)
+        return;
+    /* Pmove is the action authority.  In particular, stock teleport settling
+       accepts yaw but forces pitch to zero; echo the resulting view delta,
+       never the pre-pmove request. */
+    zc->ml_look_yaw = ML_ClientAngleDelta(
+        ent->client->v_angle[YAW], zc->ml_look_base_yaw);
+    zc->ml_look_pitch = ML_ClientActualPitchDelta(
+        ent->client->v_angle[PITCH], zc->ml_look_base_pitch);
+}
+
+void ML_ClientTelemetryApplyDeferredControls(edict_t *ent)
+{
+    static const char *weapon_names[] = {
+        NULL, "Blaster", "Shotgun", "Super Shotgun", "Machinegun",
+        "Chaingun", "Grenade Launcher", "Rocket Launcher", "HyperBlaster",
+        "Railgun"
+    };
+    zgcl_t *zc;
+    gitem_t *item;
+    ML_ClientTelemetryCvars();
+    if (!ml_client_frame_barrier->value || !ent || !ent->client ||
+        (!ML_ClientTelemetryActive(ent) &&
+        !ML_ClientTelemetryIdentified(ent)))
+        return;
+    zc = &ent->client->zc;
+    if (!zc->ml_action_generation_valid)
+        return;
+
+    /* Preserve the historical reliable-command order, but execute both only
+       inside the deferred ClientThink transaction after pmove established
+       this action's authoritative view angle. */
+    if (zc->ml_hook == 1 && use_hook->value &&
+        !(ent->lithium_flags & LITHIUM_OBSERVER) && ent->deadflag == DEAD_NO)
+    {
+        Weapon_Hook_Fire(ent);
+        ent->safety_time = 0;
+    }
+    else if (zc->ml_hook == 3 && use_hook->value &&
+        !(ent->lithium_flags & LITHIUM_OBSERVER))
+    {
+        Hook_Reset(ent->client->hook);
+    }
+    if (zc->ml_weapon > 0 && (size_t)zc->ml_weapon <
+        sizeof(weapon_names) / sizeof(weapon_names[0]))
+    {
+        item = FindItem((char *)weapon_names[zc->ml_weapon]);
+        if (item && item->use)
+            item->use(ent, item);
+    }
+    if (ml_client_frame_barrier_test_mode->value &&
+        (zc->ml_hook || zc->ml_weapon))
+        gi.dprintf("ML_FRAME_BARRIER_EVENT event=deferred_control slot=%d "
+            "action_tick=%d hook=%d weapon=%d order=hook_then_weapon\n",
+            (int)(ent - g_edicts - 1), zc->ml_last_action_tick,
+            zc->ml_hook, zc->ml_weapon);
+}
+
 void ML_ClientTelemetryFrame(void)
 {
     int slot;
+    qboolean epoch_drain;
+    qboolean all_drain_terminals_sent;
     edict_t *ent;
     ml_client_route_t *route;
     ml_client_telemetry_t packet;
     char current_id[ML_CLIENT_ID_SIZE];
     ssize_t sent;
 
+    ML_ClientTelemetryCvars();
+    if (ml_client_frame_barrier->value)
+    {
+        if (ml_client_frame_barrier_map_epoch->value < 1)
+            return;
+        ml_client_map_epoch =
+            (uint32_t)ml_client_frame_barrier_map_epoch->value;
+        strncpy(ml_client_epoch_map, level.mapname,
+            sizeof(ml_client_epoch_map) - 1);
+        ml_client_epoch_map[sizeof(ml_client_epoch_map) - 1] = '\0';
+    }
+    else if (strncmp(ml_client_epoch_map, level.mapname,
+        sizeof(ml_client_epoch_map) - 1))
+    {
+        strncpy(ml_client_epoch_map, level.mapname,
+            sizeof(ml_client_epoch_map) - 1);
+        ml_client_epoch_map[sizeof(ml_client_epoch_map) - 1] = '\0';
+        ml_client_map_epoch++;
+    }
     if (!ML_ClientTelemetryOpen())
         return;
     ML_ClientTelemetryPoll();
+    epoch_drain = ml_client_frame_barrier->value &&
+        ml_client_frame_barrier_epoch_drain->value;
+    if (!epoch_drain)
+        ml_client_epoch_drain_announced = qfalse;
 
     for (slot = 0; slot < (int)maxclients->value &&
         slot < MAX_CLIENTS; slot++)
@@ -469,6 +713,20 @@ void ML_ClientTelemetryFrame(void)
             continue;
         }
 
+        /* One terminal observation closes the old trajectory before the
+           drain-start witness.  From that witness through map_reset, no
+           action-bound telemetry is produced at all. */
+        if (epoch_drain && (ml_client_epoch_drain_announced ||
+            level.intermissiontime <= 0 ||
+            ent->client->zc.ml_intermission_obs_sent))
+        {
+            if (ml_client_frame_barrier_test_mode->value)
+                gi.dprintf("ML_FRAME_BARRIER_EVENT "
+                    "event=telemetry_suppressed_epoch_drain slot=%d "
+                    "server_frame=%d\n", slot, level.framenum);
+            continue;
+        }
+
         memset(&packet, 0, sizeof(packet));
         packet.magic = ML_CLIENT_TELEM_MAGIC;
         packet.version = ML_CLIENT_WIRE_VERSION;
@@ -476,10 +734,52 @@ void ML_ClientTelemetryFrame(void)
         packet.sequence = ++route->sequence;
         packet.client_slot = (uint32_t)slot;
         packet.server_frame = (uint32_t)level.framenum;
+        packet.barrier_version = ML_CLIENT_FRAME_BARRIER_VERSION;
+        packet.barrier_capabilities = ML_CLIENT_FRAME_BARRIER_CAPABILITY;
+        packet.map_epoch = ml_client_map_epoch;
+        packet.applied_action_tick =
+            (uint32_t)ent->client->zc.ml_last_action_tick;
         strncpy(packet.client_id, route->client_id,
             sizeof(packet.client_id) - 1);
         strncpy(packet.map_name, level.mapname, sizeof(packet.map_name) - 1);
         ML_PackObs(ent, &packet.obs);
+        ML_PackCausalTelemetry(ent, &packet.causal, 0);
+        if (ml_client_frame_barrier_test_mode->value &&
+            ent->client->zc.ml_respawn_settling_action &&
+            !(ent->client->ps.pmove.pm_flags & PMF_TIME_TELEPORT))
+            gi.dprintf("ML_FRAME_BARRIER_EVENT "
+                "event=ml_respawn_settling_action slot=%d client_id=%s "
+                "client_life_epoch=%u server_frame=%u action_tick=%u "
+                "entry_latched=1 live_pmf_time_teleport=0 active=1 "
+                "post_pmove_active=0 echo_valid=%d facts_complete=%d "
+                "transition_trainable=%d actual_look_yaw=%.6f "
+                "actual_look_pitch=%.6f\n",
+                slot, packet.client_id, packet.causal.client_life_epoch,
+                packet.server_frame,
+                packet.applied_action_tick,
+                (packet.causal.flags & ML_CAUSAL_ECHO_VALID) != 0,
+                (packet.causal.flags & ML_CAUSAL_FACTS_COMPLETE) != 0,
+                (packet.causal.flags & ML_CAUSAL_TRANSITION_TRAINABLE) != 0,
+                ent->client->zc.ml_look_yaw,
+                ent->client->zc.ml_look_pitch);
+        if (ml_client_frame_barrier_test_mode->value)
+            gi.dprintf("ML_FRAME_BARRIER_EVENT event=telemetry slot=%d "
+                "server_frame=%u applied_action_tick=%u map_epoch=%u "
+                "sequence=%u causal_echo_tick=%u causal_generation=%u "
+                "client_id=%s client_life_epoch=%u terminal_reason=%u "
+                "alive=%d action_tick=%u action_generation=%u "
+                "role_playing=%d role_public_pm_normal=%d pm_type=%d\n",
+                slot, packet.server_frame, packet.applied_action_tick,
+                packet.map_epoch, packet.sequence, packet.causal.echo_tick,
+                packet.causal.action_generation, packet.client_id,
+                packet.causal.client_life_epoch, packet.obs.terminal_reason,
+                ent->deadflag == DEAD_NO ? 1 : 0,
+                packet.applied_action_tick,
+                packet.causal.action_generation,
+                (packet.causal.flags & ML_CAUSAL_ROLE_PLAYING) != 0,
+                (packet.causal.flags &
+                    ML_CAUSAL_ROLE_PUBLIC_PM_NORMAL) != 0,
+                ent->client->ps.pmove.pm_type);
         sent = sendto(ml_client_fd, &packet, sizeof(packet), MSG_DONTWAIT,
             (struct sockaddr *)&route->endpoint, sizeof(route->endpoint));
         if (sent == sizeof(packet))
@@ -488,11 +788,69 @@ void ML_ClientTelemetryFrame(void)
                 ent->client->zc.ml_death_obs_sent = 1;
             else if (packet.obs.terminal_reason == ML_TERMINAL_INTERMISSION)
                 ent->client->zc.ml_intermission_obs_sent = 1;
+
+            if (!epoch_drain && ml_client_frame_barrier_test_mode->value &&
+                !Q_stricmp(ml_client_frame_barrier_test_fault->string,
+                    "old-telemetry") &&
+                (uint32_t)ml_client_frame_barrier_test_tick->value ==
+                    packet.applied_action_tick && route->has_last_packet)
+            {
+                sendto(ml_client_fd, &route->last_packet,
+                    sizeof(route->last_packet), MSG_DONTWAIT,
+                    (struct sockaddr *)&route->endpoint,
+                    sizeof(route->endpoint));
+                gi.dprintf("ML_FRAME_BARRIER_EVENT event=telemetry_replay "
+                    "slot=%d replay_frame=%u current_frame=%u\n", slot,
+                    route->last_packet.server_frame, packet.server_frame);
+            }
+            route->last_packet = packet;
+            route->has_last_packet = qtrue;
         }
     }
+
+    if (epoch_drain && !ml_client_epoch_drain_announced)
+    {
+        all_drain_terminals_sent = qtrue;
+        for (slot = 0; slot < (int)maxclients->value &&
+            slot < MAX_CLIENTS; slot++)
+        {
+            route = &ml_client_routes[slot];
+            ent = &g_edicts[slot + 1];
+            if (route->active && ent->inuse && ent->client &&
+                !ent->client->zc.ml_intermission_obs_sent)
+            {
+                all_drain_terminals_sent = qfalse;
+                break;
+            }
+        }
+        if (all_drain_terminals_sent)
+        {
+            ml_client_epoch_drain_announced = qtrue;
+            gi.dprintf("ML_FRAME_BARRIER_EVENT event=epoch_drain_enter "
+                "server_frame=%d source=intermission\n", level.framenum);
+        }
+        else
+        {
+            /* Do not permit an immediate intermission timeout to outrun a
+               transient nonblocking UDP send failure. */
+            level.exitintermission = qfalse;
+        }
+    }
+}
+
+qboolean ML_ClientTelemetryEpochDrainReady(void)
+{
+    ML_ClientTelemetryCvars();
+    if (!ml_client_frame_barrier->value ||
+        !ml_client_frame_barrier_epoch_drain->value)
+        return qtrue;
+    return ml_client_epoch_drain_announced;
 }
 
 void ML_ClientTelemetryShutdown(void)
 {
     ML_ClientTelemetryClose();
+    ml_client_map_epoch = 0;
+    ml_client_epoch_drain_announced = qfalse;
+    memset(ml_client_epoch_map, 0, sizeof(ml_client_epoch_map));
 }

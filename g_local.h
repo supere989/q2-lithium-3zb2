@@ -923,6 +923,9 @@ typedef struct
 	vec3_t		cmd_angles;			// angles sent over in the last command
 
 	qboolean	spectator;			// client is a spectator
+	/* Monotonic within this connected client/map lifecycle.  Zero is reserved
+	   for unavailable so target attribution survives edict-slot reuse. */
+	unsigned int	ml_life_epoch;
 } client_respawn_t;
 
 // this structure is cleared on each PutClientInServer(),
