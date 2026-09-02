@@ -168,6 +168,19 @@ typedef struct {
     uint8_t         terminal_reason;/* ML_TERMINAL_* */
     uint8_t         _pad[2];
 
+    /* wire v5 survival pack — MOD-typed attribution, per-target hit
+       attribution, self-exposure, and the scoreboard game frame. All are
+       reward/attribution/metrics channels only; none enter the policy
+       input vector. Kept before the debug blocks so debug stays last. */
+    uint16_t        last_damage_mod;    /* MOD_* of most recent damage taken */
+    uint16_t        last_death_mod;     /* MOD_* of most recent death */
+    uint32_t        last_hit_target_edict;  /* g_edicts index of last hit/kill target, 0 if none */
+    uint32_t        last_hit_target_epoch;  /* its 14-bit connection/life epoch */
+    float           self_exposure;      /* max exposure any live enemy has of me, 0..1 */
+    float           score_self;         /* my scoreboard frags */
+    float           score_leader;       /* best score on the server */
+    float           time_remaining;     /* seconds left, 0 when timelimit is 0 */
+
     /* Debug-only identity metadata. This is intentionally kept out of the
        policy vector so existing checkpoints retain the same observation size. */
     ml_entity_debug_t self_debug;

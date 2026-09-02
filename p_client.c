@@ -526,7 +526,12 @@ void player_die (edict_t *self, edict_t *inflictor, edict_t *attacker, int damag
 		/* q2-ml-bot: death penalty for ML-controlled bot */
 		if (self->client && (self->client->zc.ml_enabled ||
 		    ML_ClientTelemetryActive(self)))
+		{
 			self->client->zc.ml_reward_death += 1.0f;
+			/* wire v5: MOD-typed hazard-vs-combat death attribution */
+			self->client->zc.ml_last_death_mod =
+				meansOfDeath & ~MOD_FRIENDLY_FIRE;
+		}
 
 		if(self->svflags & SVF_MONSTER)
 		{

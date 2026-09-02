@@ -7,7 +7,7 @@
 #include <stdint.h>
 #include "ml_bridge.h"
 
-#define ML_CLIENT_WIRE_VERSION 4u
+#define ML_CLIENT_WIRE_VERSION 5u
 #define ML_CLIENT_REGISTER_MAGIC 0x52434d51u /* "QMCR" */
 #define ML_CLIENT_ACK_MAGIC      0x41434d51u /* "QMCA" */
 #define ML_CLIENT_TELEM_MAGIC    0x54434d51u /* "QMCT" */
@@ -46,9 +46,9 @@ typedef struct {
     ml_obs_t obs;
 } ml_client_telemetry_t;
 
-_Static_assert(sizeof(ml_obs_t) == 1032, "ml_obs_t wire size changed");
+_Static_assert(sizeof(ml_obs_t) == 1060, "ml_obs_t wire size changed");
 _Static_assert(sizeof(ml_client_register_t) == 120, "registration wire size changed");
 _Static_assert(sizeof(ml_client_ack_t) == 64, "ack wire size changed");
-_Static_assert(sizeof(ml_client_telemetry_t) == 1128, "telemetry wire size changed");
+_Static_assert(sizeof(ml_client_telemetry_t) == 1156, "telemetry wire size changed");
 
 #endif

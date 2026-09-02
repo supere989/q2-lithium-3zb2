@@ -112,6 +112,13 @@ typedef struct zgcl_s
 	int			ml_hit_target_epoch;		/* connection/life epoch for slot reuse */
 	int			ml_hit_streak;			/* consecutive damaging hits on that target */
 	int			ml_last_hit_frame;		/* frame of most recent qualifying hit */
+	/* wire v5 survival pack: MOD-typed damage/death attribution. The kill
+	   target snapshot preserves hit attribution across the streak-chain
+	   clear so the kill tick still names the victim. */
+	int			ml_last_damage_mod;		/* MOD_* of most recent damage taken */
+	int			ml_last_death_mod;		/* MOD_* of most recent death */
+	int			ml_kill_target_edict;	/* kill-tick victim, cleared after obs send */
+	int			ml_kill_target_epoch;
 	/* inbound damage vector (most recent significant hit, decays each frame) */
 	float		ml_inbound_dmg_dir[3];		/* unit vector toward the attacker */
 	float		ml_inbound_dmg_dist;		/* distance to that attacker, -1 if none */

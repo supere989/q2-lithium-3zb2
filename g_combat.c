@@ -703,6 +703,9 @@ void T_Damage (edict_t *targ, edict_t *inflictor, edict_t *attacker, vec3_t dir,
 		{
 			zgcl_t *tz = &targ->client->zc;
 			tz->ml_reward_damage_taken += (float)reward_take;
+			/* wire v5: MOD-typed attribution for hazard-vs-combat
+			   classification of this damage event. */
+			tz->ml_last_damage_mod = mod & ~MOD_FRIENDLY_FIRE;
 			/* Survival payoff: armour (and power-armour) that ate this hit
 			   is why you're still alive — credit the absorbed amount so the
 			   policy values holding armour under fire. */
@@ -736,7 +739,16 @@ void T_Damage (edict_t *targ, edict_t *inflictor, edict_t *attacker, vec3_t dir,
 			    && (attacker->client->zc.ml_enabled ||
 			        ML_ClientTelemetryActive(attacker))
 			    && attacker != targ)
+			{
 				attacker->client->zc.ml_reward_kill += 1.0f;
+				/* wire v5: the streak chain clears ml_hit_target_* on
+				   kill, so snapshot the victim here; the kill tick's obs
+				   still carries per-target attribution. */
+				attacker->client->zc.ml_kill_target_edict =
+					(int)(targ - g_edicts);
+				attacker->client->zc.ml_kill_target_epoch =
+					ML_HitTargetEpoch(targ);
+			}
 			Killed (targ, inflictor, attacker, take, point);
 			return;
 		}

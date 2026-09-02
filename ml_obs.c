@@ -468,6 +468,47 @@ void ML_PackObs(edict_t *ent, ml_obs_t *obs)
 	}
 	obs->entity_count = (uint32_t)n;
 
+	/* ── wire v5: self-exposure + scoreboard game frame ──────
+	   Self-exposure runs the target solution symmetrically: for each live
+	   enemy, how much of me can they see right now. Same cheap pre-checks
+	   as the entity loop above; ML_TargetSolution rejects protected,
+	   non-damageable, or non-hostile pairs, so spawn protection reads 0. */
+	{
+		float worst_exposure = 0.0f;
+		float their_exposure;
+		int   best_score = ent->client->resp.score;
+
+		for (i = 1; i <= maxclients->value; i++)
+		{
+			other = &g_edicts[i];
+			if (!other->inuse || !other->client)
+				continue;
+			if (other->client->resp.score > best_score)
+				best_score = other->client->resp.score;
+			if (other == ent || other->deadflag)
+				continue;
+			if (other->solid == SOLID_NOT ||
+			    other->client->pers.spectator ||
+			    other->client->resp.spectator ||
+			    (other->lithium_flags & LITHIUM_OBSERVER))
+				continue;
+
+			their_exposure = 0.0f;
+			if (ML_TargetSolution(other, ent, NULL, &their_exposure) &&
+			    their_exposure > worst_exposure)
+				worst_exposure = their_exposure;
+		}
+
+		obs->self_exposure  = worst_exposure;
+		obs->score_self     = (float)ent->client->resp.score;
+		obs->score_leader   = (float)best_score;
+		if (timelimit->value > 0.0f)
+		{
+			float left = timelimit->value * 60.0f - level.time;
+			obs->time_remaining = left > 0.0f ? left : 0.0f;
+		}
+	}
+
 	/* ── rays / hook zones ────────────────────────────────── */
 	ML_FillRays(ent, obs);
 	ML_FillHookZones(ent, obs);
@@ -532,6 +573,27 @@ void ML_PackObs(edict_t *ent, ml_obs_t *obs)
 	obs->reward_damage_taken_prox   = zc->ml_reward_damage_taken_prox;
 	obs->reward_offense             = zc->ml_reward_offense;
 	obs->reward_survival            = zc->ml_reward_survival;
+
+	/* ── wire v5: MOD attribution + per-target hit attribution ──
+	   reward_death/reward_damage_taken are per-tick deltas, so the consumer
+	   correlates them with the MOD read in this same packet. On a kill tick
+	   the streak chain has already cleared ml_hit_target_*, so use the
+	   snapshot taken where kill credit was given; on ordinary ticks the
+	   live focus target rides along instead. */
+	obs->last_damage_mod = (uint16_t)(zc->ml_last_damage_mod & 0xFFFF);
+	obs->last_death_mod  = (uint16_t)(zc->ml_last_death_mod & 0xFFFF);
+	if (zc->ml_reward_kill > 0.0f && zc->ml_kill_target_edict > 0)
+	{
+		obs->last_hit_target_edict = (uint32_t)zc->ml_kill_target_edict;
+		obs->last_hit_target_epoch = (uint32_t)zc->ml_kill_target_epoch;
+	}
+	else
+	{
+		obs->last_hit_target_edict = (uint32_t)zc->ml_hit_target_edict;
+		obs->last_hit_target_epoch = (uint32_t)zc->ml_hit_target_epoch;
+	}
+	zc->ml_kill_target_edict = 0;
+	zc->ml_kill_target_epoch = 0;
 
 	zc->ml_reward_damage_dealt      = 0;
 	zc->ml_reward_damage_taken      = 0;
