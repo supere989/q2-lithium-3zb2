@@ -150,6 +150,62 @@ void ML_TeacherSend(edict_t *ent, const ml_obs_t *before,
            (struct sockaddr *)&g_teacher_addr, sizeof(g_teacher_addr));
 }
 
+/* Human teacher sample. The bot path infers the action from before/after
+   state because 3ZB2 moves via walkmove-style origin changes; a human's
+   genuine input IS the usercmd, so take it directly. Same wire struct,
+   same fire-and-forget semantics; never waits or retries. */
+void ML_TeacherSendHuman(edict_t *ent, const ml_obs_t *before,
+                         const usercmd_t *ucmd, float yaw_before,
+                         float pitch_before, int hook_on) {
+    ml_teacher_sample_t sample;
+    ml_action_t *action;
+    int stride;
+
+    if (!ent || !ent->client || !before || !ucmd || !ml_teacher_enabled ||
+        !ml_teacher_enabled->value || !ml_teacher_humans ||
+        !ml_teacher_humans->value || ent->client->zc.ml_enabled)
+        return;
+    stride = ml_teacher_stride ? (int)ml_teacher_stride->value : 1;
+    if (stride < 1) stride = 1;
+    if ((int)level.framenum % stride != 0 || ml_teacher_init() != 0)
+        return;
+
+    memset(&sample, 0, sizeof(sample));
+    sample.magic = ML_TEACHER_MAGIC;
+    sample.version = ML_TEACHER_VERSION;
+    sample.packet_size = (uint32_t)sizeof(sample);
+    sample.sequence = ++g_teacher_sequence;
+    sample.tick = (uint32_t)level.framenum;
+    sample.bot_slot = (uint32_t)(ent - g_edicts - 1);
+    sample.flags = ent->groundentity ? 1u : 0u;
+    strncpy(sample.map_name, level.mapname, sizeof(sample.map_name) - 1);
+    sample.obs = *before;
+
+    action = &sample.action;
+    action->magic = ML_ACT_MAGIC;
+    action->tick = sample.tick;
+    /* ucmd->angles is the view the player commanded THIS frame; the delta
+       against the still-unapplied v_angle is the look action. */
+    action->look_yaw = ml_teacher_clamp(
+        ml_teacher_angle_delta(SHORT2ANGLE(ucmd->angles[YAW]), yaw_before),
+        -45.0f, 45.0f);
+    action->look_pitch = ml_teacher_clamp(
+        ml_teacher_angle_delta(SHORT2ANGLE(ucmd->angles[PITCH]), pitch_before),
+        -30.0f, 30.0f);
+    action->move_forward = ml_teacher_clamp(ucmd->forwardmove / 400.0f,
+                                            -1.0f, 1.0f);
+    action->move_right = ml_teacher_clamp(ucmd->sidemove / 400.0f,
+                                          -1.0f, 1.0f);
+    action->jump = (uint8_t)(ucmd->upmove > 0);
+    action->fire = (uint8_t)((ucmd->buttons & BUTTON_ATTACK) != 0);
+    action->hook = (uint8_t)(hook_on ? 2 : 0);
+    action->weapon = ml_teacher_weapon(ent);
+
+    sendto(g_teacher_fd, &sample, sizeof(sample), MSG_DONTWAIT,
+           (struct sockaddr *)&g_teacher_addr, sizeof(g_teacher_addr));
+}
+
+
 static void ml_global_init(void) {
     if (g_initialized) return;
     memset(g_socks, 0, sizeof(g_socks));

@@ -1293,6 +1293,7 @@ extern  cvar_t  *ml_teacher_enabled;
 extern  cvar_t  *ml_teacher_addr;
 extern  cvar_t  *ml_teacher_port;
 extern  cvar_t  *ml_teacher_stride;
+extern  cvar_t  *ml_teacher_humans;
 
 #define GETTER		0
 #define	DEFENDER	1

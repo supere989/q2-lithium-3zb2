@@ -264,6 +264,15 @@ void ML_TeacherSend(struct edict_s *ent, const ml_obs_t *before,
                     float velocity_z_before, int grounded_before,
                     int hook_before);
 
+/* Fire-and-forget HUMAN teacher sample (ml_teacher_humans). Unlike the
+   bot path, the action is taken directly from the player's usercmd — it
+   records genuine input, not before/after inference. */
+struct usercmd_s;
+void ML_TeacherSendHuman(struct edict_s *ent, const ml_obs_t *before,
+                         const struct usercmd_s *ucmd,
+                         float yaw_before, float pitch_before,
+                         int hook_on);
+
 /* Fill obs rays from server-side traces. */
 void ML_FillRays(struct edict_s *ent, ml_obs_t *obs);
 

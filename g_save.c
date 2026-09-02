@@ -254,6 +254,10 @@ void InitGame (void)
 	ml_teacher_addr = gi.cvar ("ml_teacher_addr", "127.0.0.1", CVAR_LATCH);
 	ml_teacher_port = gi.cvar ("ml_teacher_port", "32511", CVAR_LATCH);
 	ml_teacher_stride = gi.cvar ("ml_teacher_stride", "1", 0);
+	/* Also record HUMAN players' real usercmds as teacher samples
+	   (imitation from actual people on the public lane). Off by default;
+	   requires ml_teacher_enabled too. */
+	ml_teacher_humans = gi.cvar ("ml_teacher_humans", "0", 0);
 
 	// items
 	InitItems ();

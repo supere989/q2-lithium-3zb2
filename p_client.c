@@ -1,6 +1,8 @@
 #include <stdbool.h>
 #include "g_local.h"
 #include "ml_client_telemetry.h"
+#include "ml_bridge.h"
+#include "ml_obs.h"
 #include "m_player.h"
 #include "bot.h"
 
@@ -1857,6 +1859,25 @@ void ClientThink (edict_t *ent, usercmd_t *ucmd)
 	   Apply the authenticated ML route's target gate afterwards so the action
 	   echo records the command the weapon path can actually execute. */
 	ML_ClientTelemetryRecordCommand(ent, ucmd);
+
+	/* Human imitation capture (opt-in via ml_teacher_humans): record the
+	   real usercmd as a teacher sample. Mirrors the 3ZB2 Bot_Think capture
+	   in func.c, but the action comes from the ucmd itself. Placed after
+	   Lithium_ClientThink so observer/spawn-protected frames don't pollute
+	   the corpus. v_angle here is still last frame's view — the ucmd's
+	   angles are applied by pmove below. */
+	if (ml_teacher_enabled && ml_teacher_enabled->value &&
+	    ml_teacher_humans && ml_teacher_humans->value &&
+	    !ent->client->chase_target && !ent->deadflag &&
+	    level.intermissiontime <= 0) {
+		ml_obs_t human_obs;
+		int human_hook = ent->client->hook_on ||
+		                 ent->client->ctf_grapple != NULL;
+		ML_PackObs(ent, &human_obs);
+		ML_TeacherSendHuman(ent, &human_obs, ucmd,
+		                    ent->client->v_angle[YAW],
+		                    ent->client->v_angle[PITCH], human_hook);
+	}
 	//WF
 
 	pm_passent = ent;
